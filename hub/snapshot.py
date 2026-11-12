@@ -66,7 +66,7 @@ def build(S):
     snapshot = {
         "generated": int(time.time()), "player": stats.USERNAME, "rows": rows, "summary": summary,
         "games_list": stats.game_list(set(reviews), limit=2000), "games": games, "reviews": reviews,
-        "moveacc": {tc: S["move_accuracy"](tc or None) for tc in ("", "rapid", "blitz", "bullet")},
+        "moveacc": {f"{tc}|{col}": S["move_accuracy"](tc or None, col or None) for tc in ("", "rapid", "blitz", "bullet") for col in ("", "white", "black")},
         "opening_lines": openings.line_summary(progress),
         "opening_line": {lid: {"id": lid, "name": line_meta[lid]["name"], "color": line_meta[lid]["color"], "plies": plies} for lid, plies in openings.BUILT.items()},
         "opening_report": openings.report(S["opening_games"]()),

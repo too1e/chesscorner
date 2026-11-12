@@ -199,22 +199,19 @@ def mate_move(fen, uci, n):
     return {"ok": True, "done": False, "reply": best.uci(), "n_left": max(1, n - 1), "positions": position_info(fen, [uci, best.uci()])}
 
 
-def move_accuracy(tc=None):
-    """Accuracy of your moves by move number, from the games analysed here (win-chance lost per move).
+def move_accuracy(tc=None, color=None):
+    """Accuracy on each move number across every analysed game that reached it (win-chance lost per move).
 
-    Scored lichess-style so it sits near chess.com's numbers: the overall and each phase are a lichess game
-    accuracy per game (weighted + harmonic mean), averaged over games; each move-number point blends the mean
-    with the harmonic mean, so a few blunders on that move pull it down hard."""
+    Everything is pooled by move, never per game: a point is all games' Nth moves, a phase is all moves in that
+    range, and the overall is all your moves. Each pool is scored as the average of its mean and harmonic mean,
+    so a few blunders pull it down hard (close to how lichess scores accuracy). `color` limits it to one side."""
     rows = {r["id"]: r for r in stats.rows(raw_games())}
-    PHASES = (("Opening", 1, 10), ("Middlegame", 11, 25), ("Late game", 26, 999))
-    by, per_game, per_phase = collections.defaultdict(list), [], collections.defaultdict(list)
-    phase_moves = collections.Counter()
+    by, games = collections.defaultdict(list), 0
     for uid, rv in reviewed().items():
         row = rows.get(uid)
-        if not row or (tc and row["tc"] != tc):
+        if not row or (tc and row["tc"] != tc) or (color and rv.get("color") != color):
             continue
-        evals, white = rv.get("evals") or [], rv.get("color") == "white"
-        vol, mine = analysis.volatility_weights(evals), []   # (move number, accuracy, weight)
+        evals, white, used = rv.get("evals") or [], rv.get("color") == "white", False
         for i in range(len(evals) - 1):
             if (i % 2 == 0) != white:
                 continue
@@ -222,21 +219,19 @@ def move_accuracy(tc=None):
             if not white:
                 before, after = -before, -after
             drop = max(0.0, analysis.win_pct(before) - analysis.win_pct(after))
-            acc = max(0.0, min(100.0, 103.1668 * math.exp(-0.04354 * drop) - 3.1669))
-            by[i // 2 + 1].append(acc)
-            mine.append((i // 2 + 1, acc, vol[i]))
-        if not mine:
-            continue
-        per_game.append(analysis.game_accuracy([m[1] for m in mine], [m[2] for m in mine]))
-        for label, lo, hi in PHASES:
-            seg = [m for m in mine if lo <= m[0] <= hi]
-            phase_moves[label] += len(seg)
-            if len(seg) >= 3:   # too few moves to score a phase fairly
-                per_phase[label].append(analysis.game_accuracy([m[1] for m in seg], [m[2] for m in seg]))
-    mean = lambda v: sum(v) / len(v) if v else None
-    moves = [{"move": m, "acc": (mean(v) + analysis.harmonic_mean(v)) / 2, "n": len(v)} for m, v in sorted(by.items())]
-    return {"games": len(per_game), "moves": moves, "overall": mean(per_game),
-            "phases": [{"label": label, "acc": mean(per_phase[label]), "n": phase_moves[label]} for label, _, _ in PHASES]}
+            by[i // 2 + 1].append(max(0.0, min(100.0, 103.1668 * math.exp(-0.04354 * drop) - 3.1669)))
+            used = True
+        games += used
+
+    def score(vals):
+        return (sum(vals) / len(vals) + analysis.harmonic_mean(vals)) / 2 if vals else None
+
+    def phase(label, lo, hi):
+        vals = [a for m, v in by.items() if lo <= m <= hi for a in v]
+        return {"label": label, "acc": score(vals), "n": len(vals)}
+    return {"games": games, "moves": [{"move": m, "acc": score(v), "n": len(v)} for m, v in sorted(by.items())],
+            "overall": score([a for v in by.values() for a in v]),
+            "phases": [phase("Opening", 1, 10), phase("Middlegame", 11, 25), phase("Late game", 26, 999)]}
 
 
 def refresh(months=3, timeout=30):
@@ -543,7 +538,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json({"player": stats.USERNAME, "generated": int(time.time()), "synced": int(SYNC["t"]),
                                        "rows": stats.rows(raw_games())})
             if url.path == "/api/moveacc":
-                return self.send_json(move_accuracy(q.get("tc", [""])[0] or None))
+                return self.send_json(move_accuracy(q.get("tc", [""])[0] or None, q.get("color", [""])[0] or None))
             if url.path == "/api/mates":
                 return self.send_json(mates_state())
             if url.path == "/api/mates/practice":

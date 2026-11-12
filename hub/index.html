@@ -241,6 +241,7 @@
   @media (max-width: 1150px) { .tiles { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); } }
   .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 11px 14px 11px; min-height: 0; display: flex; flex-direction: column; }
   .tile .lh { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 7px; } .tile .lh .l { margin: 0; }
+  .mahead { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; } .mahead h2 { margin-bottom: 0; } .mahead + #maBody { margin-top: 10px; }
   .tile .meta { font: 11px var(--mono); color: var(--dim); white-space: nowrap; }
   .tile .stack > div { font: 600 10.5px/22px var(--mono); padding: 0 7px; overflow: hidden; white-space: nowrap; }
   .tile .v { white-space: nowrap; } .tile .v em.dl { white-space: nowrap; }
@@ -364,7 +365,7 @@ async function snapApi(path, body) {
       if (id) { const g = S.games[id]; return { left_at: g.left_at, last_named: g.last_named, current: g.current }; }
       const oid = snapIdx.open.get(key + "|" + body.moves.length); if (oid) return { current: { name: S.games[oid].openName } }; no(); }
     case "/api/review": { const r = S.reviews[q.get("id")]; if (!r) throw new Error("not reviewed"); return r; }
-    case "/api/moveacc": return S.moveacc[q.get("tc") || ""] || S.moveacc[""];
+    case "/api/moveacc": return S.moveacc[(q.get("tc") || "") + "|" + (q.get("color") || "")] || S.moveacc["|"];
     case "/api/opening/lines": return S.opening_lines;
     case "/api/opening/line": return S.opening_line[q.get("id")];
     case "/api/opening/report": return S.opening_report;
@@ -1497,10 +1498,15 @@ function renderBot() {
 
 /* ---------- accuracy move by move, from games Stockfish has analysed here ---------- */
 let MA_RUN = null;   // { cancel, text } while a bulk analysis is running
-const maShell = () => `<div class="card" style="grid-column:1/-1"><h2>Accuracy by move number <span class="dim">· your moves, from games analysed with Stockfish here</span></h2><div id="maBody"><p class="muted small">Loading…</p></div></div>`;
+let MA_COLOR = store.get("cc_macolor", "all");   // all games, or only the games you played as white / black
+const maShell = () => `<div class="card" style="grid-column:1/-1"><div class="mahead"><h2>Accuracy by move number <span class="dim">· your moves, from games analysed with Stockfish here</span></h2><div class="seg" id="maColor">${[["all", "All"], ["white", "As white"], ["black", "As black"]].map(([k, t]) => `<button data-k="${k}">${t}</button>`).join("")}</div></div><div id="maBody"><p class="muted small">Loading…</p></div></div>`;
 async function loadMoveAcc() {
   if (!$("#maBody")) return;
-  try { renderMoveAcc(await api("/api/moveacc" + (MODE === "all" ? "" : "?tc=" + MODE))); }
+  const seg = $("#maColor");
+  if (seg) { seg.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.k === MA_COLOR));
+    seg.onclick = e => { const k = e.target.dataset.k; if (k && k !== MA_COLOR) { MA_COLOR = k; store.set("cc_macolor", k); loadMoveAcc(); } }; }
+  const qs = [MODE === "all" ? "" : "tc=" + MODE, MA_COLOR === "all" ? "" : "color=" + MA_COLOR].filter(Boolean).join("&");
+  try { renderMoveAcc(await api("/api/moveacc" + (qs ? "?" + qs : ""))); }
   catch (e) { if ($("#maBody")) $("#maBody").innerHTML = `<p class="muted small">${esc(e.message)}</p>`; }
 }
 function maControls(games) {
@@ -1513,7 +1519,7 @@ function renderMoveAcc(d) {
   const body = $("#maBody"); if (!body) return;
   const usable = d.moves.filter(m => m.n >= 3), maxM = Math.min(45, usable.length ? usable[usable.length - 1].move : 20);
   if (d.games < 3 || usable.length < 5) {
-    body.innerHTML = `<p class="muted small" style="margin:0 0 8px">${d.games ? `Only ${d.games} analysed game${d.games === 1 ? "" : "s"} so far` : "No analysed games yet"}${MODE === "all" ? "" : ` for ${MODE}`} — a move-by-move curve needs a few more. Analyse some of your recent games and it will appear here.</p>${maControls(d.games)}`; wireMa(); return;
+    body.innerHTML = `<p class="muted small" style="margin:0 0 8px">${d.games ? `Only ${d.games} analysed game${d.games === 1 ? "" : "s"} so far` : "No analysed games yet"}${MODE === "all" ? "" : ` for ${MODE}`}${MA_COLOR === "all" ? "" : ` as ${MA_COLOR}`} — a move-by-move curve needs a few more. Analyse some of your recent games and it will appear here.</p>${maControls(d.games)}`; wireMa(); return;
   }
   const W = 720, H = 220, pad = { l: 34, r: 10, t: 18, b: 22 }, X = m => pad.l + (m - 1) / Math.max(maxM - 1, 1) * (W - pad.l - pad.r), Y = v => pad.t + (1 - v / 100) * (H - pad.t - pad.b);
   const all = d.moves.filter(m => m.move <= maxM), avg = d.overall != null ? d.overall : (() => { const t = all.reduce((a, m) => a + m.acc * m.n, 0), n = all.reduce((a, m) => a + m.n, 0); return n ? t / n : 0; })();
@@ -1526,9 +1532,9 @@ function renderMoveAcc(d) {
   const solid = all.filter(m => m.n >= 3), line = solid.map((m, i) => `${i ? "L" : "M"}${X(m.move).toFixed(1)},${Y(m.acc).toFixed(1)}`).join(" ");
   g += `<path d="${line}" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>`;
   all.forEach(m => { g += `<circle cx="${X(m.move)}" cy="${Y(m.acc)}" r="${m.n >= 3 ? 3 : 2.2}" fill="${m.n >= 3 ? "#050505" : "#555"}" stroke="${m.n >= 3 ? "#fff" : "#555"}" stroke-width="1.3" style="pointer-events:none"/>`;
-    g += `<rect x="${X(m.move) - 7}" y="${pad.t}" width="14" height="${H - pad.t - pad.b}" fill="transparent"${tip(`Move ${m.move}: ${Math.round(m.acc)}% average accuracy\n${m.n} game${m.n === 1 ? "" : "s"}${m.n < 3 ? " · too few to trust" : ""}`)}/>`; });
+    g += `<rect x="${X(m.move) - 7}" y="${pad.t}" width="14" height="${H - pad.t - pad.b}" fill="transparent"${tip(`Move ${m.move}: ${Math.round(m.acc)}% accuracy on this move\nacross the ${m.n} game${m.n === 1 ? "" : "s"} that reached move ${m.move}${m.n < 3 ? " · too few to trust" : ""}`)}/>`; });
   const ph = d.phases, f = ph.find(p => p.label === "Opening"), l = ph.find(p => p.label === "Late game"), mid = ph.find(p => p.label === "Middlegame");
-  const worst = solid.length ? solid.reduce((a, m) => m.acc < a.acc ? m : a) : null;
+  const steady = solid.filter(m => m.n >= 5), worst = steady.length ? steady.reduce((a, m) => m.acc < a.acc ? m : a) : null;   // ignore thinly sampled late moves
   let verdict = "";
   if (f.acc != null && l.acc != null && f.n >= 30 && l.n >= 30) {
     const diff = l.acc - f.acc;
@@ -1537,11 +1543,11 @@ function renderMoveAcc(d) {
         : `<b>Your accuracy is higher later in the game:</b> ${Math.round(f.acc)}% in the opening → ${Math.round(l.acc)}% late. Part of that is the scoring — once a game is decided, moves barely change the win chance.`;
   }
   body.innerHTML = `<div class="mamain"><div class="machart"><svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block">${g}</svg>
-      <div class="legend"><span><i class="sw" style="background:#fff"></i>average accuracy on that move</span><span><i class="sw" style="background:#ff6b6b"></i>overall ${Math.round(avg)}%</span><span class="dim">faint dots = fewer than 3 games</span></div></div>
+      <div class="legend"><span><i class="sw" style="background:#fff"></i>accuracy on that move, across games</span><span><i class="sw" style="background:#ff6b6b"></i>overall ${Math.round(avg)}%</span><span class="dim">faint dots = fewer than 3 games</span></div></div>
     <div class="maside"><div class="maphases">${ph.map(p => `<div class="mph"${tip(`${p.label}: ${p.acc == null ? "no data" : p.acc.toFixed(1) + "% average accuracy"}\n${p.n} of your moves`)}><span class="k">${p.label}</span><b>${p.acc == null ? "–" : Math.round(p.acc) + "%"}</b><span class="dim small">${p.n} moves</span></div>`).join("")}</div>
       <div class="small" style="margin-top:10px">${verdict}${worst ? ` Your weakest point is around <b>move ${worst.move}</b> (${Math.round(worst.acc)}%).` : ""}</div>
-      <div class="note" style="margin-top:6px">Based on ${d.games} analysed games. More games make the curve steadier.</div>
-      <div class="note" style="margin-top:6px">Scored the lichess way (one blunder costs a lot), so it sits close to your chess.com accuracy, but not exactly: these are different games and a quicker engine search. Use it mostly for the shape — where you dip.</div>${maControls(d.games)}</div></div>`;
+      <div class="note" style="margin-top:6px">Based on ${d.games} analysed games. Each point is that move across every game that reached it, so later moves have fewer games behind them (games end at different lengths) and jump around more.</div>
+      <div class="note" style="margin-top:6px">Scored close to the lichess way (a blend of the average and harmonic mean, so one blunder costs a lot). It lands near your chess.com accuracy, but not exactly: these are different games and a quicker engine search.</div>${maControls(d.games)}</div></div>`;
   wireMa();
 }
 function wireMa() {
