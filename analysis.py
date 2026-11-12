@@ -39,6 +39,35 @@ def win_pct(cp):
     return 50 + 50 * (2 / (1 + math.exp(-0.00368208 * cp)) - 1)
 
 
+def harmonic_mean(accs):
+    """Harmonic mean of accuracies (0-100). One very low value drags it down hard, the way one blunder should."""
+    vals = [max(1.0, a) for a in accs]
+    return len(vals) / sum(1 / a for a in vals) if vals else None
+
+
+def game_accuracy(accs, weights):
+    """lichess-style game accuracy: the average of a volatility-weighted mean and a harmonic mean of move accuracies.
+
+    `weights` are how swingy the game was around each move, so mistakes in sharp positions count for more.
+    """
+    if not accs:
+        return None
+    weighted = sum(a * w for a, w in zip(accs, weights)) / sum(weights)
+    return (weighted + harmonic_mean(accs)) / 2
+
+
+def volatility_weights(evals):
+    """One weight per move: the spread of white's win chances in a window around it, clamped to 0.5-12."""
+    wins = [win_pct(max(-EVAL_CLIP, min(EVAL_CLIP, e))) for e in evals]
+    half = max(1, min(4, len(wins) // 20))
+    out = []
+    for i in range(len(wins) - 1):
+        w = wins[max(0, i - half): i + half + 2]
+        m = sum(w) / len(w)
+        out.append(max(0.5, min(12.0, math.sqrt(sum((x - m) ** 2 for x in w) / len(w)))))
+    return out
+
+
 def classify(win_drop):
     if win_drop <= 2:
         return "best"
@@ -102,11 +131,12 @@ def grade(moves, positions):
         best = positions[i][1]
         out["moves"].append({"cpl": cpl, "drop": round(drop, 1), "acc": round(acc, 1), "cls": cls,
                              "best": best if best and best != uci and cls in ("inaccuracy", "mistake", "blunder") else None})
+    vol = volatility_weights(out["evals"])
     for name, parity in (("white", 0), ("black", 1)):
         mine = [m for i, m in enumerate(out["moves"]) if i % 2 == parity]
         if mine:
             out[name] = {"acpl": sum(min(m["cpl"], CPL_CAP) for m in mine) / len(mine),
-                         "acc": sum(m["acc"] for m in mine) / len(mine),
+                         "acc": game_accuracy([m["acc"] for m in mine], [w for i, w in enumerate(vol) if i % 2 == parity]),
                          "n": len(mine),
                          **{c: sum(1 for m in mine if m["cls"] == c) for c in ("inaccuracy", "mistake", "blunder")}}
     return out

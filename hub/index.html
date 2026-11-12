@@ -910,7 +910,7 @@ function rvBuild() {
   const ccNone = tip("chess.com hasn't reviewed this game yet. Review it there, then Sync chess.com to pull the score in.");
   const ccAcc = v => v == null ? `<span class="rvbig dim"${ccNone}>–</span>` : `<span class="rvbig">${Math.round(v)}%</span>`;
   const counts = s => `${plural(s.blunder, "blunder")} · ${plural(s.mistake, "mistake")} · ${plural(s.inaccuracy, "inaccuracy", "inaccuracies")}`;
-  const here = tip("This app's own Stockfish check: a quicker search and a gentler formula than chess.com, so it reads higher and its mistake counts can differ.");
+  const here = tip("This app's own Stockfish check, scored the lichess way. It lands close to chess.com's number but won't match exactly: a quicker search and a different formula, so mistake counts can differ too.");
   $("#rvDetail").innerHTML = `<div class="rvsum"><div><div class="rvacc">${ccAcc(g.acc)} <span class="dim small">you · chess.com</span>
           <span class="rvmid"${here}>${Math.round(me.acc)}%</span> <span class="dim small"${here}>Stockfish check here · avg loss ${Math.round(me.acpl)} cp</span></div>
         <div class="small"><span class="dim">Here: </span><span class="blunder">${plural(me.blunder, "blunder")}</span> · <span class="mistake">${plural(me.mistake, "mistake")}</span> · <span class="inaccuracy">${plural(me.inaccuracy, "inaccuracy", "inaccuracies")}</span></div></div>
@@ -922,7 +922,7 @@ function rvBuild() {
         <div id="rvMoves" class="rvmoves"${tip("Marked moves are mistakes: yours bright, your opponent's dim")}></div>
         <div class="gvnav rvnav"><button class="btn" id="rvFirst" title="Start (Home)">⏮</button><button class="btn" id="rvPrev" title="Back (←)">◀</button><button class="btn" id="rvNext" title="Forward (→)">▶</button><button class="btn" id="rvLast" title="End (End)">⏭</button>
           <button class="btn" id="rvPM" title="Previous mistake of yours">◀ Mistake</button><button class="btn" id="rvNM" title="Next mistake of yours">Mistake ▶</button></div>
-        <div class="note" style="margin-top:2px">The Stockfish check here is quicker and gentler than chess.com's review, so compare its numbers between games here, not with chess.com. ${r.new_puzzles ? `${r.new_puzzles} new puzzle${r.new_puzzles > 1 ? "s" : ""} added. ` : ""}<a href="${esc(g.url)}" target="_blank" rel="noopener">Open on chess.com</a></div></div></div>`;
+        <div class="note" style="margin-top:2px">The Stockfish check here uses a quicker search and lichess-style scoring, so it lands close to chess.com's numbers but won't match exactly. ${r.new_puzzles ? `${r.new_puzzles} new puzzle${r.new_puzzles > 1 ? "s" : ""} added. ` : ""}<a href="${esc(g.url)}" target="_blank" rel="noopener">Open on chess.com</a></div></div></div>`;
   $("#rvFirst").onclick = () => rvGo(0); $("#rvPrev").onclick = () => rvGo(RV.cursor - 1); $("#rvNext").onclick = () => rvGo(RV.cursor + 1); $("#rvLast").onclick = () => rvGo(RV.positions.length - 1);
   $("#rvPM").onclick = () => { const p = RV.mine.filter(x => x < RV.cursor).pop(); if (p != null) rvGo(p); };
   $("#rvNM").onclick = () => { const p = RV.mine.find(x => x > RV.cursor); if (p != null) rvGo(p); };
@@ -1516,7 +1516,7 @@ function renderMoveAcc(d) {
     body.innerHTML = `<p class="muted small" style="margin:0 0 8px">${d.games ? `Only ${d.games} analysed game${d.games === 1 ? "" : "s"} so far` : "No analysed games yet"}${MODE === "all" ? "" : ` for ${MODE}`} — a move-by-move curve needs a few more. Analyse some of your recent games and it will appear here.</p>${maControls(d.games)}`; wireMa(); return;
   }
   const W = 720, H = 220, pad = { l: 34, r: 10, t: 18, b: 22 }, X = m => pad.l + (m - 1) / Math.max(maxM - 1, 1) * (W - pad.l - pad.r), Y = v => pad.t + (1 - v / 100) * (H - pad.t - pad.b);
-  const all = d.moves.filter(m => m.move <= maxM), avg = (() => { const t = all.reduce((a, m) => a + m.acc * m.n, 0), n = all.reduce((a, m) => a + m.n, 0); return n ? t / n : 0; })();
+  const all = d.moves.filter(m => m.move <= maxM), avg = d.overall != null ? d.overall : (() => { const t = all.reduce((a, m) => a + m.acc * m.n, 0), n = all.reduce((a, m) => a + m.n, 0); return n ? t / n : 0; })();
   let g = "";
   for (const v of [0, 25, 50, 75, 100]) g += `<line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="#1b1b1b"/><text x="${pad.l - 7}" y="${Y(v) + 3.5}" text-anchor="end">${v}</text>`;
   [[1, 10, "Opening"], [11, 25, "Middlegame"], [26, maxM, "Late game"]].forEach(([a, b, name], i) => { if (a > maxM) return; const x1 = X(a) - 4, x2 = X(Math.min(b, maxM)) + 4;
@@ -1541,7 +1541,7 @@ function renderMoveAcc(d) {
     <div class="maside"><div class="maphases">${ph.map(p => `<div class="mph"${tip(`${p.label}: ${p.acc == null ? "no data" : p.acc.toFixed(1) + "% average accuracy"}\n${p.n} of your moves`)}><span class="k">${p.label}</span><b>${p.acc == null ? "–" : Math.round(p.acc) + "%"}</b><span class="dim small">${p.n} moves</span></div>`).join("")}</div>
       <div class="small" style="margin-top:10px">${verdict}${worst ? ` Your weakest point is around <b>move ${worst.move}</b> (${Math.round(worst.acc)}%).` : ""}</div>
       <div class="note" style="margin-top:6px">Based on ${d.games} analysed games. More games make the curve steadier.</div>
-      <div class="note" style="margin-top:6px">Reads higher than your chess.com accuracy: these are different games, a quicker engine search that misses some mistakes, and a plain average of every move, where chess.com weighs bad moves more heavily. Use it for the shape — where you dip — not the level.</div>${maControls(d.games)}</div></div>`;
+      <div class="note" style="margin-top:6px">Scored the lichess way (one blunder costs a lot), so it sits close to your chess.com accuracy, but not exactly: these are different games and a quicker engine search. Use it mostly for the shape — where you dip.</div>${maControls(d.games)}</div></div>`;
   wireMa();
 }
 function wireMa() {

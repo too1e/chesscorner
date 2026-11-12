@@ -200,14 +200,21 @@ def mate_move(fen, uci, n):
 
 
 def move_accuracy(tc=None):
-    """Average accuracy of your moves by move number, from the games analysed here (win-chance lost per move)."""
+    """Accuracy of your moves by move number, from the games analysed here (win-chance lost per move).
+
+    Scored lichess-style so it sits near chess.com's numbers: the overall and each phase are a lichess game
+    accuracy per game (weighted + harmonic mean), averaged over games; each move-number point blends the mean
+    with the harmonic mean, so a few blunders on that move pull it down hard."""
     rows = {r["id"]: r for r in stats.rows(raw_games())}
-    by, games = collections.defaultdict(list), 0
+    PHASES = (("Opening", 1, 10), ("Middlegame", 11, 25), ("Late game", 26, 999))
+    by, per_game, per_phase = collections.defaultdict(list), [], collections.defaultdict(list)
+    phase_moves = collections.Counter()
     for uid, rv in reviewed().items():
         row = rows.get(uid)
         if not row or (tc and row["tc"] != tc):
             continue
-        evals, white, used = rv.get("evals") or [], rv.get("color") == "white", False
+        evals, white = rv.get("evals") or [], rv.get("color") == "white"
+        vol, mine = analysis.volatility_weights(evals), []   # (move number, accuracy, weight)
         for i in range(len(evals) - 1):
             if (i % 2 == 0) != white:
                 continue
@@ -215,15 +222,21 @@ def move_accuracy(tc=None):
             if not white:
                 before, after = -before, -after
             drop = max(0.0, analysis.win_pct(before) - analysis.win_pct(after))
-            by[i // 2 + 1].append(max(0.0, min(100.0, 103.1668 * math.exp(-0.04354 * drop) - 3.1669)))
-            used = True
-        games += used
-    moves = [{"move": m, "acc": sum(v) / len(v), "n": len(v)} for m, v in sorted(by.items())]
-
-    def phase(label, lo, hi):
-        vals = [a for m, v in by.items() if lo <= m <= hi for a in v]
-        return {"label": label, "acc": (sum(vals) / len(vals)) if vals else None, "n": len(vals)}
-    return {"games": games, "moves": moves, "phases": [phase("Opening", 1, 10), phase("Middlegame", 11, 25), phase("Late game", 26, 999)]}
+            acc = max(0.0, min(100.0, 103.1668 * math.exp(-0.04354 * drop) - 3.1669))
+            by[i // 2 + 1].append(acc)
+            mine.append((i // 2 + 1, acc, vol[i]))
+        if not mine:
+            continue
+        per_game.append(analysis.game_accuracy([m[1] for m in mine], [m[2] for m in mine]))
+        for label, lo, hi in PHASES:
+            seg = [m for m in mine if lo <= m[0] <= hi]
+            phase_moves[label] += len(seg)
+            if len(seg) >= 3:   # too few moves to score a phase fairly
+                per_phase[label].append(analysis.game_accuracy([m[1] for m in seg], [m[2] for m in seg]))
+    mean = lambda v: sum(v) / len(v) if v else None
+    moves = [{"move": m, "acc": (mean(v) + analysis.harmonic_mean(v)) / 2, "n": len(v)} for m, v in sorted(by.items())]
+    return {"games": len(per_game), "moves": moves, "overall": mean(per_game),
+            "phases": [{"label": label, "acc": mean(per_phase[label]), "n": phase_moves[label]} for label, _, _ in PHASES]}
 
 
 def refresh(months=3, timeout=30):
