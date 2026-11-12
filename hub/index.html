@@ -329,6 +329,7 @@ const fmtDate = t => new Date(t * 1000).toLocaleDateString(undefined, { month: "
 const fmtShort = t => new Date(t * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 const tip = t => ` data-tip="${String(t ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;")}"`;
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const plural = (n, one, many = one + "s") => `${n} ${n === 1 ? one : many}`;
 const signed = n => (n > 0 ? "+" : n < 0 ? "−" : "±") + Math.abs(Math.round(n));
 const store = { get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
 
@@ -875,8 +876,8 @@ async function showReview(g, r) {
 function rvBuild() {
   const { g, r } = RV, me = r.me, opp = r.opp;
   $("#rvDetail").innerHTML = `<div class="rvsum"><div><span class="rvbig">${Math.round(me.acc)}%</span> <span class="dim small">your accuracy · avg loss ${Math.round(me.acpl)} cp</span>
-        <div class="small"><span class="blunder">${me.blunder} blunders</span> · <span class="mistake">${me.mistake} mistakes</span> · <span class="inaccuracy">${me.inaccuracy} inaccuracies</span></div></div>
-      <div style="text-align:right"><span class="rvbig dim">${Math.round(opp.acc)}%</span> <span class="dim small">opponent</span><div class="small dim">${opp.blunder} blunders · ${opp.mistake} mistakes · ${opp.inaccuracy} inaccuracies</div></div></div>
+        <div class="small"><span class="blunder">${plural(me.blunder, "blunder")}</span> · <span class="mistake">${plural(me.mistake, "mistake")}</span> · <span class="inaccuracy">${plural(me.inaccuracy, "inaccuracy", "inaccuracies")}</span></div></div>
+      <div style="text-align:right"><span class="rvbig dim">${Math.round(opp.acc)}%</span> <span class="dim small">opponent</span><div class="small dim">${plural(opp.blunder, "blunder")} · ${plural(opp.mistake, "mistake")} · ${plural(opp.inaccuracy, "inaccuracy", "inaccuracies")}</div></div></div>
     <div class="rvmain"><div class="gvrow"><div class="evalbar"><div id="rvFill"></div><span id="rvEvalLab"></span></div><svg id="rvBoard" viewBox="0 0 400 400"></svg></div>
       <div class="rvside"><svg id="rvGraph" viewBox="0 0 400 84"${tip("Your advantage through the game. Click to jump to that point.")}></svg><div id="rvCap" class="gvcap"></div>
         <div id="rvMoves" class="rvmoves"${tip("Marked moves are mistakes: yours bright, your opponent's dim")}></div>
