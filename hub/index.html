@@ -702,8 +702,8 @@ function drawAcc(F) {
   const dotColor = r => r.outcome === "win" ? "#6ee7a0" : r.outcome === "loss" ? "#ff6b6b" : "#888";
   const showDots = series.reduce((a, s) => a + s.rows.length, 0) <= 700;
   const pts = [];
-  for (const s of series) {
-    if (showDots) s.rows.forEach(r => { g += `<circle class="dt" data-tc="${s.tc}" cx="${X(order.get(r))}" cy="${Y(r.acc)}" r="${series.length > 1 ? 1.7 : 2.3}" fill="${dotColor(r)}" opacity="${series.length > 1 ? .4 : .6}"/>`; });
+  if (showDots) for (const s of series) s.rows.forEach(r => { g += `<circle class="dt" data-tc="${s.tc}" cx="${X(order.get(r))}" cy="${Y(r.acc)}" r="${series.length > 1 ? 1.7 : 2.3}" fill="${dotColor(r)}" opacity="${series.length > 1 ? .4 : .6}"/>`; });
+  for (const s of [...series].reverse()) {   // bullet drawn first so rapid sits on top
     const st = STYLE[s.tc], d = s.rows.map((r, k) => `${k ? "L" : "M"}${X(order.get(r)).toFixed(1)},${Y(s.avg[k]).toFixed(1)}`).join(" ");
     g += `<path class="ln" data-tc="${s.tc}" d="${d}" fill="none" stroke="${st.c}" stroke-width="${st.w}" stroke-dasharray="${st.d}" stroke-linejoin="round" style="transition:opacity .12s"/>`;
     s.rows.forEach((r, k) => pts.push({ s, r, k, x: X(order.get(r)), y: Y(r.acc), ay: Y(s.avg[k]) }));
@@ -751,7 +751,7 @@ function drawElo(F) {
   const ticks = F.length > 1 ? [0, .25, .5, .75, 1].map(f => Math.round(f * N)) : [0];
   [...new Set(ticks)].forEach(i => g += `<text x="${X(i)}" y="${H - 7}" text-anchor="${i === 0 ? "start" : i === N ? "end" : "middle"}">${fmtShort(F[i].t)}</text>`);
   if (series.length === 1) { const base = series[0].pts[0].r.rating; g += `<line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(base)}" y2="${Y(base)}" stroke="#444" stroke-dasharray="2 4"/>`; }
-  for (const s of series) {
+  for (const s of [...series].reverse()) {   // bullet drawn first so rapid sits on top
     const st = STYLE[s.tc], d = s.pts.map((p, k) => `${k ? "L" : "M"}${X(p.i).toFixed(1)},${Y(p.r.rating).toFixed(1)}`).join(" ");
     g += `<path class="ln" data-tc="${s.tc}" d="${d}" fill="none" stroke="${st.c}" stroke-width="${st.w}" stroke-dasharray="${st.d}" stroke-linejoin="round" style="transition:opacity .12s"/>`;
     const last = s.pts[s.pts.length - 1]; g += `<circle class="pt" data-tc="${s.tc}" cx="${X(last.i)}" cy="${Y(last.r.rating)}" r="3.5" fill="${st.c}"/>`;
