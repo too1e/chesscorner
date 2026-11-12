@@ -399,12 +399,19 @@ function lineChart(series, { w = 560, h = 200, yMin, yMax, pad = { l: 40, r: 10,
 let ROWS = [], GENERATED = 0, S = null;
 const PERIODS = [["10", "10 games", { games: 10 }], ["25", "25 games", { games: 25 }], ["week", "Week", { days: 7 }], ["month", "Month", { days: 30 }],
   ["quarter", "3 months", { days: 90 }], ["year", "Year", { days: 365 }], ["all", "All time", {}]];
-let MODE = store.get("cc_mode", "all"), PERIOD = store.get("cc_period", "month");
+let MODE = store.get("cc_mode", "all"), PERIOD = store.get("cc_period", "month"), PER_MODE = store.get("cc_permode", false);
+// "N games" with All selected: either the last N overall, or the last N of each mode (PER_MODE)
+const perModeOn = () => MODE === "all" && PER_MODE && !!PERIODS.find(p => p[0] === PERIOD)[2].games;
+function lastGames(base, n, skip = 0) {
+  if (!perModeOn()) return base.slice(Math.max(0, base.length - skip - n), base.length - skip);
+  const keep = new Set(TCS.flatMap(tc => { const m = base.filter(x => x.tc === tc); return m.slice(Math.max(0, m.length - skip - n), m.length - skip); }));
+  return base.filter(x => keep.has(x));
+}
 function filtered() {
   let r = ROWS.filter(x => MODE === "all" || x.tc === MODE);
   const p = PERIODS.find(p => p[0] === PERIOD)[2];
   if (p.days) { const cutoff = Date.now() / 1000 - p.days * 86400; r = r.filter(x => x.t >= cutoff); }
-  if (p.games) r = r.slice(-p.games);
+  if (p.games) r = lastGames(r, p.games);
   return r;
 }
 const KIND = ["Queen", "Rook", "Bishop", "Knight", "Pawn", "Discovered / double"];
@@ -425,7 +432,7 @@ function previousRows() {
   const p = PERIODS.find(p => p[0] === PERIOD)[2];
   const base = ROWS.filter(x => MODE === "all" || x.tc === MODE);
   if (p.days) { const end = Date.now() / 1000 - p.days * 86400, start = end - p.days * 86400; return base.filter(x => x.t >= start && x.t < end); }
-  if (p.games) { const cur = base.slice(-p.games), idx = base.length - cur.length; return base.slice(Math.max(0, idx - p.games), idx); }
+  if (p.games) return lastGames(base, p.games, p.games);
   return null;
 }
 function chip(cur, prev, { goodUp = true, unit = "", digits = 0 } = {}) {
@@ -542,8 +549,8 @@ function renderOverview() {
   const root = $("#tab-overview");
   const F = filtered(), n = F.length;
   const seg = (items, cur, id) => `<div class="seg" id="${id}">${items.map(([k, t]) => `<button data-k="${k}" class="${k === cur ? "on" : ""}">${t}</button>`).join("")}</div>`;
-  let html = `<div class="bar">${seg([["all", "All"], ["rapid", "Rapid"], ["blitz", "Blitz"], ["bullet", "Bullet"]], MODE, "segMode")}${seg(PERIODS.map(p => [p[0], p[1]]), PERIOD, "segPeriod")}
-    <span class="small dim mono">${n} games${n ? ` · ${fmtDate(F[0].t)} → ${fmtDate(F[n - 1].t)}` : ""}</span></div>`;
+  let html = `<div class="bar">${seg([["all", "All"], ["rapid", "Rapid"], ["blitz", "Blitz"], ["bullet", "Bullet"]], MODE, "segMode")}${seg(PERIODS.map(p => [p[0], p[1]]), PERIOD, "segPeriod")}${MODE === "all" && periodDef().games ? seg([["total", "Total"], ["each", "Each mode"]], PER_MODE ? "each" : "total", "segPerMode") : ""}
+    <span class="small dim mono">${n} games${perModeOn() ? ` · last ${periodDef().games} of each` : ""}${n ? ` · ${fmtDate(F[0].t)} → ${fmtDate(F[n - 1].t)}` : ""}</span></div>`;
   // the rating tile always shows all three modes; only its change figure follows the period
   const ratingRows = TCS.map(tc => { const all = ROWS.filter(r => r.tc === tc); if (!all.length) return "";
     const sl = periodSlice(all), d = sl.length ? sl[sl.length - 1].rating - sl[0].rating : null;
@@ -648,6 +655,7 @@ ${Math.round(s.left * 100)}% of your starting time · games lost on time exclude
 function wireFilters(root) {
   $("#segMode", root).onclick = e => { const k = e.target.dataset.k; if (k) { MODE = k; store.set("cc_mode", k); renderOverview(); } };
   $("#segPeriod", root).onclick = e => { const k = e.target.dataset.k; if (k) { PERIOD = k; store.set("cc_period", k); renderOverview(); } };
+  const pm = $("#segPerMode", root); if (pm) pm.onclick = e => { const k = e.target.dataset.k; if (k) { PER_MODE = k === "each"; store.set("cc_permode", PER_MODE); renderOverview(); } };
 }
 /* ---------- game details shown on chart hovers ---------- */
 const baseSec = c => { const m = String(c || "").match(/^(\d+)/); return m ? +m[1] : null; };
