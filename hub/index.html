@@ -48,6 +48,9 @@
   tr.click { cursor: pointer; }
   tr.click:hover td { background: var(--panel2); }
   .pill { display: inline-block; padding: 1px 8px; border: 1px solid var(--line2); border-radius: 2px; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .pill.side-white { background: #e8e8e8; color: #111; border-color: #e8e8e8; font-weight: 600; } .pill.side-black { background: #000; color: #9a9a9a; border-color: #444; }
+  tr.opgroup td { font: 600 10px "Inter", "Segoe UI", sans-serif; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); padding: 14px 6px 6px; border-bottom: 1px solid var(--line); }
+  tr.opgroup:first-child td { padding-top: 4px; }
   .win { color: var(--good); } .loss { color: var(--bad); } .draw { color: var(--muted); }
   .hide { display: none !important; }
   .banner { padding: 10px 14px; border: 1px solid var(--line2); border-left: 2px solid var(--fg); background: var(--panel); margin-bottom: 16px; font-size: 12.5px; }
@@ -1062,9 +1065,11 @@ async function openLine(id, mode) {
 }
 async function loadOpeningLines() {
   OP.lines = await api("/api/opening/lines");
-  $("#opList").innerHTML = OP.lines.map(l => `<tr><td class="opname"${tip(`${l.name}
-${l.my_moves} moves to learn · ${l.solved}/${l.tries} perfect runs`)}>${esc(l.name)}</td><td><span class="pill">${l.color}</span></td><td class="${l.due ? "loss" : "dim"} small">${l.due ? "due" : "ok"}</td>
-    <td style="white-space:nowrap"><button class="btn" data-id="${l.id}" data-m="learn">Learn</button> <button class="btn" data-id="${l.id}" data-m="drill">Drill</button></td></tr>`).join("");
+  // grouped by the side you play, White first
+  const row = l => `<tr><td class="opname"${tip(`${l.name}
+${l.my_moves} moves to learn · ${l.solved}/${l.tries} perfect runs`)}>${esc(l.name)}</td><td><span class="pill side-${l.color}">${l.color}</span></td><td class="${l.due ? "loss" : "dim"} small">${l.due ? "due" : "ok"}</td>
+    <td style="white-space:nowrap"><button class="btn" data-id="${l.id}" data-m="learn">Learn</button> <button class="btn" data-id="${l.id}" data-m="drill">Drill</button></td></tr>`;
+  $("#opList").innerHTML = `<colgroup><col><col style="width:62px"><col style="width:36px"><col style="width:124px"></colgroup>` + ["white", "black"].map(c => { const ls = OP.lines.filter(l => l.color === c); return ls.length ? `<tr class="opgroup"><td colspan="4">As ${c} · ${ls.length} lines · ${ls.filter(l => l.due).length} due</td></tr>` + ls.map(row).join("") : ""; }).join("");
   document.querySelectorAll("#opList button").forEach(b => b.onclick = () => openLine(b.dataset.id, b.dataset.m));
 }
 async function renderOpenings() {
