@@ -113,7 +113,7 @@ def build_review(uuid, evals, batch=False):
             move = chess.Move.from_uci(uci)
             best_san = board.san(chess.Move.from_uci(mv["best"])) if mv["best"] else None
             try:
-                why = coach.explain(board, move, mv["best"], mv["cls"], mine=mine)
+                why = coach.explain(board, move, mv["best"], mv["cls"], mine=mine, other="Your opponent's")
             except Exception:
                 why = ""
             flagged.append({"ply": i, "num": i // 2 + 1, "white": i % 2 == 0, "san": d["san"][i], "cls": mv["cls"],

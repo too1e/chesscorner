@@ -114,6 +114,8 @@
   .rvwrap > * { min-width: 0; } .rvtable td, .rvtable th { padding: 6px 6px; } tr.sel td { background: #1a1a1a; } .rdot { color: var(--good); font-size: 9px; }
   .rvsum { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 10px; }
   .rvbig { font: 600 28px/1 var(--mono); letter-spacing: -.03em; }
+  .rvacc { margin-bottom: 4px; } .rvacc.dimmed .rvbig { color: var(--dim); }
+  .rvmid { font: 600 17px/1 var(--mono); letter-spacing: -.02em; color: #cfcfcf; margin-left: 14px; }
   .rvmain { display: flex; gap: 14px; align-items: flex-start; }
   .rvmain #rvBoard { display: block; width: var(--RV); height: var(--RV); min-width: 260px; min-height: 260px; }
   .rvside { flex: 1; min-width: 250px; display: flex; flex-direction: column; gap: 8px; height: var(--RV); min-height: 420px; }
@@ -868,22 +870,30 @@ async function showReview(g, r) {
   try {
     const d = await api("/api/game?id=" + g.id), pos = await api("/api/position", { fen: GV_START, moves: d.moves });
     Object.assign(RV, { g, r, d, positions: pos.positions, flip: r.color === "black", byPly: new Map(r.flagged.map(f => [f.ply, f])), selId: g.id });
-    RV.mine = r.flagged.filter(f => f.mine && f.cls !== "inaccuracy").map(f => f.ply).sort((a, b) => a - b);
-    RV.cursor = RV.mine.length ? RV.mine[0] : 0;   // open on the position just before your first big mistake
+    RV.mine = r.flagged.filter(f => f.mine && f.cls !== "inaccuracy").map(f => f.ply + 1).sort((a, b) => a - b);
+    RV.cursor = RV.mine.length ? RV.mine[0] : 0;   // open with your first big mistake selected
     rvBuild(); rvDraw(); document.querySelectorAll("#rvList tr.click").forEach(tr => tr.classList.toggle("sel", reviewGames[+tr.dataset.i] && reviewGames[+tr.dataset.i].id === g.id));
   } catch (e) { box.innerHTML = `<p class="loss">${esc(e.message)}</p>`; }
 }
 function rvBuild() {
   const { g, r } = RV, me = r.me, opp = r.opp;
-  $("#rvDetail").innerHTML = `<div class="rvsum"><div><span class="rvbig">${Math.round(me.acc)}%</span> <span class="dim small">your accuracy · avg loss ${Math.round(me.acpl)} cp</span>
-        <div class="small"><span class="blunder">${plural(me.blunder, "blunder")}</span> · <span class="mistake">${plural(me.mistake, "mistake")}</span> · <span class="inaccuracy">${plural(me.inaccuracy, "inaccuracy", "inaccuracies")}</span></div></div>
-      <div style="text-align:right"><span class="rvbig dim">${Math.round(opp.acc)}%</span> <span class="dim small">opponent</span><div class="small dim">${plural(opp.blunder, "blunder")} · ${plural(opp.mistake, "mistake")} · ${plural(opp.inaccuracy, "inaccuracy", "inaccuracies")}</div></div></div>
+  // chess.com's own score (when it has reviewed the game) next to this app's Stockfish check
+  const ccNone = tip("chess.com hasn't reviewed this game yet. Review it there, then Sync chess.com to pull the score in.");
+  const ccAcc = v => v == null ? `<span class="rvbig dim"${ccNone}>–</span>` : `<span class="rvbig">${Math.round(v)}%</span>`;
+  const counts = s => `${plural(s.blunder, "blunder")} · ${plural(s.mistake, "mistake")} · ${plural(s.inaccuracy, "inaccuracy", "inaccuracies")}`;
+  const here = tip("This app's own Stockfish check: a quicker search and a gentler formula than chess.com, so it reads higher and its mistake counts can differ.");
+  $("#rvDetail").innerHTML = `<div class="rvsum"><div><div class="rvacc">${ccAcc(g.acc)} <span class="dim small">you · chess.com</span>
+          <span class="rvmid"${here}>${Math.round(me.acc)}%</span> <span class="dim small"${here}>Stockfish check here · avg loss ${Math.round(me.acpl)} cp</span></div>
+        <div class="small"><span class="dim">Here: </span><span class="blunder">${plural(me.blunder, "blunder")}</span> · <span class="mistake">${plural(me.mistake, "mistake")}</span> · <span class="inaccuracy">${plural(me.inaccuracy, "inaccuracy", "inaccuracies")}</span></div></div>
+      <div style="text-align:right"><div class="rvacc dimmed">${ccAcc(g.opp_acc)} <span class="dim small">opponent · chess.com</span>
+          <span class="rvmid"${here}>${Math.round(opp.acc)}%</span> <span class="dim small"${here}>here</span></div>
+        <div class="small dim">Here: ${counts(opp)}</div></div></div>
     <div class="rvmain"><div class="gvrow"><div class="evalbar"><div id="rvFill"></div><span id="rvEvalLab"></span></div><svg id="rvBoard" viewBox="0 0 400 400"></svg></div>
       <div class="rvside"><svg id="rvGraph" viewBox="0 0 400 84"${tip("Your advantage through the game. Click to jump to that point.")}></svg><div id="rvCap" class="gvcap"></div>
         <div id="rvMoves" class="rvmoves"${tip("Marked moves are mistakes: yours bright, your opponent's dim")}></div>
         <div class="gvnav rvnav"><button class="btn" id="rvFirst" title="Start (Home)">⏮</button><button class="btn" id="rvPrev" title="Back (←)">◀</button><button class="btn" id="rvNext" title="Forward (→)">▶</button><button class="btn" id="rvLast" title="End (End)">⏭</button>
           <button class="btn" id="rvPM" title="Previous mistake of yours">◀ Mistake</button><button class="btn" id="rvNM" title="Next mistake of yours">Mistake ▶</button></div>
-        <div class="note" style="margin-top:2px">${g.acc ? `chess.com scored this game ${Math.round(g.acc)}%. ` : ""}Accuracy here uses a gentler formula, so compare games here with each other. ${r.new_puzzles ? `${r.new_puzzles} new puzzle${r.new_puzzles > 1 ? "s" : ""} added. ` : ""}<a href="${esc(g.url)}" target="_blank" rel="noopener">Open on chess.com</a></div></div></div>`;
+        <div class="note" style="margin-top:2px">The Stockfish check here is quicker and gentler than chess.com's review, so compare its numbers between games here, not with chess.com. ${r.new_puzzles ? `${r.new_puzzles} new puzzle${r.new_puzzles > 1 ? "s" : ""} added. ` : ""}<a href="${esc(g.url)}" target="_blank" rel="noopener">Open on chess.com</a></div></div></div>`;
   $("#rvFirst").onclick = () => rvGo(0); $("#rvPrev").onclick = () => rvGo(RV.cursor - 1); $("#rvNext").onclick = () => rvGo(RV.cursor + 1); $("#rvLast").onclick = () => rvGo(RV.positions.length - 1);
   $("#rvPM").onclick = () => { const p = RV.mine.filter(x => x < RV.cursor).pop(); if (p != null) rvGo(p); };
   $("#rvNM").onclick = () => { const p = RV.mine.find(x => x > RV.cursor); if (p != null) rvGo(p); };
@@ -899,7 +909,7 @@ function rvGraph() {
 }
 function rvDraw() {
   const p = RV.positions[RV.cursor], n = RV.positions.length - 1; if (!p || !$("#rvBoard")) return;
-  const f = RV.byPly.get(RV.cursor);   // a flagged move is about to be played from this position
+  const f = RV.byPly.get(RV.cursor - 1);   // the selected move (the one just played to reach this position), if flagged
   renderGeneric($("#rvBoard"), { fen: p.fen, flip: RV.flip, last: p.last, arrow: f && f.best ? [f.best.slice(0, 2), f.best.slice(2, 4)] : null });
   const cp = RV.r.evals[RV.cursor] || 0, frac = 1 / (1 + Math.exp(-cp / 250)), fill = $("#rvFill"), lab = $("#rvEvalLab");
   fill.style.height = frac * 100 + "%"; fill.style.top = RV.flip ? "0" : "auto"; fill.style.bottom = RV.flip ? "auto" : "0";
@@ -911,13 +921,11 @@ function rvDraw() {
   let rows = ""; for (let k = 0; k < n; k += 2) rows += `<div class="mvrow"><span class="mvn">${k / 2 + 1}.</span>${cell(k)}${cell(k + 1)}</div>`;
   $("#rvMoves").innerHTML = rows;
   const on = $("#rvMoves .mv.on"); if (on) on.scrollIntoView({ block: "nearest" });
-  const after = RV.byPly.get(RV.cursor - 1);
   let cap;
-  if (f) cap = `<b>${f.mine ? "You" : "Your opponent"} played ${esc(gvLabel(f.ply, f.san))}${RV_MARK[f.cls]} here</b> <span class="${f.cls}">(${f.cls}, −${Math.round(f.drop)}% win chance)</span>.${f.best_san ? ` The arrow shows the better move, <b>${esc(f.best_san)}</b>.` : ""}${f.why ? `<br><span class="small">${esc(f.why)}</span>` : ""}`;
-  else if (after) cap = `<span class="muted">After <b style="color:var(--fg)">${esc(gvLabel(RV.cursor - 1, after.san))}${RV_MARK[after.cls]}</b> — ${after.mine ? "your" : "their"} ${after.cls}. Step back with ◀ to see what was better.</span>`;
+  if (f) cap = `<b>${f.mine ? "You" : "Your opponent"} played ${esc(sentenceMove(f.ply, f.san))}${RV_MARK[f.cls]}</b> <span class="${f.cls}">(${f.cls}, −${Math.round(f.drop)}% win chance)</span>.${f.best_san ? ` Better was <b>${esc(f.best_san)}</b>, shown by the arrow.` : ""}${f.why ? `<br><span class="small">${esc(f.why)}</span>` : ""}`;
   else if (RV.cursor === 0) cap = `<span class="muted">Starting position. Press <b>Mistake ▶</b> to jump to your first big mistake.</span>`;
   else if (RV.cursor === n) cap = `<b>How it ended:</b> <span class="${RV.g.outcome}">${esc(outcomeText(RV.g))}</span>`;
-  else cap = `<span class="muted">After <b style="color:var(--fg)">${esc(gvLabel(RV.cursor - 1, p.san))}</b>.</span>`;
+  else cap = `<span class="muted">${esc(sentenceMove(RV.cursor - 1, p.san))} — no big mistake on this move.</span>`;
   $("#rvCap").innerHTML = cap;
   $("#rvFirst").disabled = $("#rvPrev").disabled = RV.cursor <= 0; $("#rvNext").disabled = $("#rvLast").disabled = RV.cursor >= n;
   $("#rvPM").disabled = !RV.mine.some(x => x < RV.cursor); $("#rvNM").disabled = !RV.mine.some(x => x > RV.cursor);
@@ -1534,6 +1542,7 @@ async function maAnalyse(count) {
 const GV = { r: null, d: null, positions: [], cursor: 0, flip: false, openPly: 0, ex: null, evalCache: new Map(), ticket: 0, ev: null };
 const GV_START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const gvLabel = (k, san) => k % 2 === 0 ? `${k / 2 + 1}.${san}` : san;   // k = 0-based ply
+const sentenceMove = (k, san) => k % 2 === 0 ? `${k / 2 + 1}.${san}` : `${(k + 1) / 2}…${san}`;   // for sentences: black moves get "12…"
 async function openGameViewer(r) {
   let dlg = $("#gameDialog");
   if (!dlg) {

@@ -117,12 +117,12 @@ def warning(board, move):
     return ""
 
 
-def explain(board, move, best_uci, cls, mine=True):
+def explain(board, move, best_uci, cls, mine=True, other="The bot's"):
     """One or two short sentences on why `move` (played from `board`) was a mistake, or '' if unsure.
 
-    `mine` says whether the mover is the user ("Your queen") or the bot ("The bot's queen").
+    `mine` says whether the mover is the user ("Your queen") or the other side (`other`, e.g. "The bot's queen").
     """
-    own, them = ("Your", "their") if mine else ("The bot's", "your")
+    own, them = ("Your", "their") if mine else (other, "your")
     san_best = None
     best = None
     if best_uci:
@@ -165,7 +165,7 @@ def explain(board, move, best_uci, cls, mine=True):
         for m in after.legal_moves:
             f = forks(after, m)
             if f:
-                reasons.append(f"Allows a fork: {after.san(m)} attacks {own.lower() if mine else own} {_list(after, f[1])} at once.")
+                reasons.append(f"Allows a fork: {after.san(m)} attacks {own[:1].lower() + own[1:]} {_list(after, f[1])} at once.")
                 break
 
     # 4. Missed a free capture

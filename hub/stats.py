@@ -138,6 +138,7 @@ def rows(games):
         out.append({"id": uuid, "url": g.get("url"), "t": g["end_time"], "tc": g["time_class"],
                     "color": color, "rating": me["rating"], "opp": opp["rating"], "result": me["result"],
                     "outcome": outcome(me["result"]), "opp_result": opp["result"], "acc": (g.get("accuracies") or {}).get(color),
+                    "opp_acc": (g.get("accuracies") or {}).get("black" if color == "white" else "white"),
                     "avg_sec": avg, "clock_left": left, "opening": opening_name(g.get("pgn")),
                     "control": g.get("time_control"), **cache[uuid]})
     if dirty:
