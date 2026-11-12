@@ -587,7 +587,7 @@ function renderOverview() {
 
   `;
   html += `<div class="hero"><div class="card"><h2>Rating over the period</h2><div id="eloChart" class="chartwrap"></div><div class="legend" id="eloLegend"></div></div>
-    <div class="col"><div class="card"><h2>Watch</h2>${watchList(F)}</div><div class="card"><h2>Habits · win rate when you do vs don't</h2>${habitsHTML(F)}</div></div></div>`;
+    <div class="col"><div class="card"><h2>Watch</h2>${watchList(F)}</div><div class="card"><h2>Habits · win rate by scenario</h2>${habitsHTML(F)}</div></div></div>`;
 
   // ---- mode-aware groupings: with one mode selected, show it in more depth instead of two empty rows
   const single = MODE !== "all";
