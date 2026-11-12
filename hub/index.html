@@ -116,11 +116,19 @@
   .rvbig { font: 600 28px/1 var(--mono); letter-spacing: -.03em; }
   .rvmain { display: flex; gap: 14px; align-items: flex-start; }
   .rvmain #rvBoard { display: block; width: var(--RV); height: var(--RV); min-width: 260px; min-height: 260px; }
-  .rvside { flex: 1; min-width: 250px; display: flex; flex-direction: column; gap: 8px; }
+  .rvside { flex: 1; min-width: 250px; display: flex; flex-direction: column; gap: 8px; height: var(--RV); min-height: 420px; }
+  .rvside #rvGraph { flex: none; }
+  .rvside #rvCap { flex: none; height: 7.6em; overflow: auto; }
+  .rvmoves { flex: 1; min-height: 90px; overflow: auto; border: 1px solid var(--line); border-radius: 3px; font: 12.5px var(--mono); }
+  .mvrow { display: grid; grid-template-columns: 38px 1fr 1fr; align-items: center; padding: 2px 6px; }
+  .mvrow:nth-child(odd) { background: rgba(255,255,255,.035); }
+  .mvrow .mvn { color: var(--dim); } .mvrow .mv { justify-self: start; padding: 1px 6px; }
+  .gvnav.rvnav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) repeat(2, minmax(0, 2.3fr)); flex-wrap: nowrap; flex: none; }
+  .rvnav .btn { padding-left: 0; padding-right: 0; white-space: nowrap; text-align: center; letter-spacing: .06em; }
+  .rvside .note { flex: none; }
   #rvGraph { width: 100%; height: auto; cursor: pointer; background: #0a0a0a; border: 1px solid var(--line); }
-  .rvmoves { max-height: calc(var(--RV) - 300px); min-height: 70px; overflow: auto; align-content: flex-start; }
   .mv.blunder { color: var(--bad); } .mv.mistake { color: #f4a261; } .mv.inaccuracy { color: var(--warn); } .mv.opp { opacity: .55; } .mv .mk { font-weight: 700; margin-left: 1px; }
-  @media (max-width: 1150px) { .rvwrap { grid-template-columns: 1fr; } .rvmain { flex-wrap: wrap; } }
+  @media (max-width: 1150px) { .rvwrap { grid-template-columns: 1fr; } .rvmain { flex-wrap: wrap; } .rvside { height: auto; min-height: 0; } .rvmoves { flex: none; max-height: 240px; } }
   /* game viewer dialog */
   :root { --GV: min(calc(100vh - 250px), 540px); }
   .gvbody { display: flex; gap: 16px; align-items: flex-start; }
@@ -871,8 +879,8 @@ function rvBuild() {
       <div style="text-align:right"><span class="rvbig dim">${Math.round(opp.acc)}%</span> <span class="dim small">opponent</span><div class="small dim">${opp.blunder} blunders · ${opp.mistake} mistakes · ${opp.inaccuracy} inaccuracies</div></div></div>
     <div class="rvmain"><div class="gvrow"><div class="evalbar"><div id="rvFill"></div><span id="rvEvalLab"></span></div><svg id="rvBoard" viewBox="0 0 400 400"></svg></div>
       <div class="rvside"><svg id="rvGraph" viewBox="0 0 400 84"${tip("Your advantage through the game. Click to jump to that point.")}></svg><div id="rvCap" class="gvcap"></div>
-        <div class="small dim">Moves · marked ones are mistakes (yours bright, theirs dim)</div><div id="rvMoves" class="mvs rvmoves"></div>
-        <div class="gvnav"><button class="btn" id="rvFirst" title="Start (Home)">⏮</button><button class="btn" id="rvPrev" title="Back (←)">◀</button><button class="btn" id="rvNext" title="Forward (→)">▶</button><button class="btn" id="rvLast" title="End (End)">⏭</button>
+        <div id="rvMoves" class="rvmoves"${tip("Marked moves are mistakes: yours bright, your opponent's dim")}></div>
+        <div class="gvnav rvnav"><button class="btn" id="rvFirst" title="Start (Home)">⏮</button><button class="btn" id="rvPrev" title="Back (←)">◀</button><button class="btn" id="rvNext" title="Forward (→)">▶</button><button class="btn" id="rvLast" title="End (End)">⏭</button>
           <button class="btn" id="rvPM" title="Previous mistake of yours">◀ Mistake</button><button class="btn" id="rvNM" title="Next mistake of yours">Mistake ▶</button></div>
         <div class="note" style="margin-top:2px">${g.acc ? `chess.com scored this game ${Math.round(g.acc)}%. ` : ""}Accuracy here uses a gentler formula, so compare games here with each other. ${r.new_puzzles ? `${r.new_puzzles} new puzzle${r.new_puzzles > 1 ? "s" : ""} added. ` : ""}<a href="${esc(g.url)}" target="_blank" rel="noopener">Open on chess.com</a></div></div></div>`;
   $("#rvFirst").onclick = () => rvGo(0); $("#rvPrev").onclick = () => rvGo(RV.cursor - 1); $("#rvNext").onclick = () => rvGo(RV.cursor + 1); $("#rvLast").onclick = () => rvGo(RV.positions.length - 1);
@@ -896,8 +904,11 @@ function rvDraw() {
   fill.style.height = frac * 100 + "%"; fill.style.top = RV.flip ? "0" : "auto"; fill.style.bottom = RV.flip ? "auto" : "0";
   lab.textContent = pzBarText(cp); 
   lab.style.top = RV.flip ? (cp >= 0 ? "4px" : "auto") : (cp >= 0 ? "auto" : "4px"); lab.style.bottom = RV.flip ? (cp >= 0 ? "auto" : "4px") : (cp >= 0 ? "4px" : "auto");
-  $("#rvMoves").innerHTML = RV.positions.slice(1).map((x, k) => { const fl = RV.byPly.get(k);
-    return `<span class="mv ${fl ? fl.cls + (fl.mine ? "" : " opp") : ""} ${k + 1 === RV.cursor ? "on" : ""}" data-k="${k + 1}"${fl ? tip(`${fl.mine ? "Your" : "Opponent's"} ${fl.cls}\n−${Math.round(fl.drop)}% win chance${fl.best_san ? "\nbetter: " + fl.best_san : ""}`) : ""}>${esc(gvLabel(k, x.san))}${fl ? `<span class="mk">${RV_MARK[fl.cls]}</span>` : ""}</span>`; }).join(" ");
+  // chess.com-style list: one row per move number, white then black
+  const cell = k => { const x = RV.positions[k + 1]; if (!x) return "<span></span>"; const fl = RV.byPly.get(k);
+    return `<span class="mv ${fl ? fl.cls + (fl.mine ? "" : " opp") : ""} ${k + 1 === RV.cursor ? "on" : ""}" data-k="${k + 1}"${fl ? tip(`${fl.mine ? "Your" : "Opponent's"} ${fl.cls}\n−${Math.round(fl.drop)}% win chance${fl.best_san ? "\nbetter: " + fl.best_san : ""}`) : ""}>${esc(x.san)}${fl ? `<span class="mk">${RV_MARK[fl.cls]}</span>` : ""}</span>`; };
+  let rows = ""; for (let k = 0; k < n; k += 2) rows += `<div class="mvrow"><span class="mvn">${k / 2 + 1}.</span>${cell(k)}${cell(k + 1)}</div>`;
+  $("#rvMoves").innerHTML = rows;
   const on = $("#rvMoves .mv.on"); if (on) on.scrollIntoView({ block: "nearest" });
   const after = RV.byPly.get(RV.cursor - 1);
   let cap;
