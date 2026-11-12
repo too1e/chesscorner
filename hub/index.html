@@ -1489,7 +1489,8 @@ function renderMoveAcc(d) {
       <div class="legend"><span><i class="sw" style="background:#fff"></i>average accuracy on that move</span><span><i class="sw" style="background:#ff6b6b"></i>overall ${Math.round(avg)}%</span><span class="dim">faint dots = fewer than 3 games</span></div></div>
     <div class="maside"><div class="maphases">${ph.map(p => `<div class="mph"${tip(`${p.label}: ${p.acc == null ? "no data" : p.acc.toFixed(1) + "% average accuracy"}\n${p.n} of your moves`)}><span class="k">${p.label}</span><b>${p.acc == null ? "–" : Math.round(p.acc) + "%"}</b><span class="dim small">${p.n} moves</span></div>`).join("")}</div>
       <div class="small" style="margin-top:10px">${verdict}${worst ? ` Your weakest point is around <b>move ${worst.move}</b> (${Math.round(worst.acc)}%).` : ""}</div>
-      <div class="note" style="margin-top:6px">Based on ${d.games} analysed games. More games make the curve steadier.</div>${maControls(d.games)}</div></div>`;
+      <div class="note" style="margin-top:6px">Based on ${d.games} analysed games. More games make the curve steadier.</div>
+      <div class="note" style="margin-top:6px">Reads higher than your chess.com accuracy: these are different games, a quicker engine search that misses some mistakes, and a plain average of every move, where chess.com weighs bad moves more heavily. Use it for the shape — where you dip — not the level.</div>${maControls(d.games)}</div></div>`;
   wireMa();
 }
 function wireMa() {
