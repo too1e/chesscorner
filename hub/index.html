@@ -111,6 +111,8 @@
   /* review viewer */
   :root { --RV: min(calc(100vh - 226px), 500px); }
   .rvwrap { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 12px; align-items: start; }
+  .rvfilters { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 8px; } .rvfilters .seg button { padding: 4px 8px; font-size: 9.5px; letter-spacing: .08em; }
+  .rvcount { margin-bottom: 6px; } .rvcount a { color: var(--muted); }
   .rvwrap > * { min-width: 0; } .rvtable td, .rvtable th { padding: 6px 6px; } tr.sel td { background: #1a1a1a; } .rdot { color: var(--good); font-size: 9px; }
   .rvsum { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 10px; }
   .rvbig { font: 600 28px/1 var(--mono); letter-spacing: -.03em; }
@@ -856,11 +858,35 @@ async function renderReviewList() {
     root.innerHTML = `<div class="rvwrap"><div class="card scrollcard" id="rvList"></div><div class="card" id="rvDetail"><h2>Review</h2><p class="muted">Pick a game. Stockfish runs in this browser tab (10–30 seconds a game), then you get the board, every move marked, and your mistakes to step through. They’re also added to your practice puzzles.</p></div></div>`;
     root.dataset.built = 1;
   }
-  try { reviewGames = await api("/api/games"); } catch (e) { $("#rvList").innerHTML = `<p class="loss">${esc(e.message)}</p>`; return; }
-  $("#rvList").innerHTML = `<h2>Recent games</h2><table class="rvtable"><tr><th>Date</th><th>Mode</th><th>Result</th><th class="num">Acc</th></tr>` +
-    reviewGames.map((g, i) => `<tr class="click ${RV.selId === g.id ? "sel" : ""}" data-i="${i}"><td class="mono small">${fmtShort(g.t)}</td><td><span class="pill">${g.tc}</span> <span class="dim small">${g.color[0].toUpperCase()}</span></td>
-      <td class="${g.outcome}">${g.outcome}</td><td class="num"${g.reviewed ? tip("Reviewed in this hub") : ""}>${g.acc ? Math.round(g.acc) : "–"}${g.reviewed ? ` <span class="rdot">●</span>` : ""}</td></tr>`).join("") + `</table><div class="note">“Acc” is chess.com’s own accuracy, where it exists. <span class="rdot">●</span> = reviewed here.</div>`;
+  try { reviewGames = await api("/api/games?limit=500"); } catch (e) { $("#rvList").innerHTML = `<p class="loss">${esc(e.message)}</p>`; return; }
+  RVF.shown = 60; drawReviewList();
+}
+// filters for the review list; remembered like the overview filters
+const RVF = Object.assign({ tc: "all", res: "all", col: "all", rev: "all" }, store.get("cc_rvf", {}), { shown: 60 });
+const RVF_OPTS = {
+  tc: [["all", "All"], ["rapid", "Rapid"], ["blitz", "Blitz"], ["bullet", "Bullet"]],
+  res: [["all", "All"], ["win", "Wins"], ["loss", "Losses"], ["draw", "Draws"]],
+  col: [["all", "Both"], ["white", "White"], ["black", "Black"]],
+  rev: [["all", "Any"], ["here", "Reviewed"], ["todo", "Unreviewed"], ["cc", "Has acc"]],
+};
+const rvMatch = g => (RVF.tc === "all" || g.tc === RVF.tc) && (RVF.res === "all" || g.outcome === RVF.res) && (RVF.col === "all" || g.color === RVF.col)
+  && (RVF.rev === "all" || (RVF.rev === "here" ? g.reviewed : RVF.rev === "todo" ? !g.reviewed : g.acc != null));
+function drawReviewList() {
+  const idx = reviewGames.map((g, i) => i).filter(i => rvMatch(reviewGames[i])), show = idx.slice(0, RVF.shown);
+  const seg = k => `<div class="seg" data-f="${k}">${RVF_OPTS[k].map(([v, t]) => `<button data-v="${v}" class="${RVF[k] === v ? "on" : ""}"${v === "cc" ? tip("Games chess.com has an accuracy score for") : ""}>${t}</button>`).join("")}</div>`;
+  const busy = RVF.tc !== "all" || RVF.res !== "all" || RVF.col !== "all" || RVF.rev !== "all";
+  $("#rvList").innerHTML = `<h2>Recent games</h2><div class="rvfilters">${seg("tc")}${seg("res")}${seg("col")}${seg("rev")}</div>
+    <div class="small dim mono rvcount">${idx.length} of ${reviewGames.length >= 500 ? "your latest 500" : reviewGames.length} games${busy ? ` · <a href="#" id="rvfClear">clear filters</a>` : ""}</div>` +
+    (show.length ? `<table class="rvtable"><tr><th>Date</th><th>Mode</th><th>Result</th><th class="num">Acc</th></tr>` +
+    show.map(i => { const g = reviewGames[i]; return `<tr class="click ${RV.selId === g.id ? "sel" : ""}" data-i="${i}"><td class="mono small">${fmtShort(g.t)}</td><td><span class="pill">${g.tc}</span> <span class="dim small">${g.color[0].toUpperCase()}</span></td>
+      <td class="${g.outcome}">${g.outcome}</td><td class="num"${g.reviewed ? tip("Reviewed in this hub") : ""}>${g.acc ? Math.round(g.acc) : "–"}${g.reviewed ? ` <span class="rdot">●</span>` : ""}</td></tr>`; }).join("") + `</table>` : `<p class="muted small">No games match these filters.</p>`) +
+    (idx.length > show.length ? `<button class="btn" id="rvMore" style="width:100%;margin-top:8px">Show ${Math.min(60, idx.length - show.length)} more</button>` : "") +
+    `<div class="note">“Acc” is chess.com’s own accuracy, where it exists. <span class="rdot">●</span> = reviewed here.</div>`;
   document.querySelectorAll("#rvList tr.click").forEach(tr => tr.onclick = () => openGame(reviewGames[+tr.dataset.i]));
+  document.querySelectorAll("#rvList .rvfilters .seg").forEach(sg => sg.onclick = e => { const v = e.target.dataset.v; if (!v) return;
+    RVF[sg.dataset.f] = v; RVF.shown = 60; store.set("cc_rvf", { tc: RVF.tc, res: RVF.res, col: RVF.col, rev: RVF.rev }); drawReviewList(); });
+  const more = $("#rvMore"); if (more) more.onclick = () => { RVF.shown += 60; drawReviewList(); };
+  const clr = $("#rvfClear"); if (clr) clr.onclick = e => { e.preventDefault(); Object.assign(RVF, { tc: "all", res: "all", col: "all", rev: "all", shown: 60 }); store.set("cc_rvf", {}); drawReviewList(); };
 }
 /* ---------- review viewer: the board, every move marked, an eval graph you can click ---------- */
 const RV = { g: null, r: null, d: null, positions: [], cursor: 0, flip: false, byPly: new Map(), mine: [], selId: null };
