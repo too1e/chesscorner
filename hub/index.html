@@ -343,6 +343,9 @@ const store = { get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)
 
 /* ---------- offline copy: the same page, answering its own questions from data baked into the file ---------- */
 const IS_SNAPSHOT = !!window.__SNAPSHOT__;
+// the published site ships Stockfish and sitereview.js next to the page, so it can review games (saved in this browser only)
+const IS_SITE = IS_SNAPSHOT && !!window.__SNAPSHOT__.site;
+const siteReviews = () => store.get("cc_site_reviews", {});
 const pieceUrl = code => IS_SNAPSHOT ? window.__SNAPSHOT__.pieces[code] : `pieces/${code}.svg`;
 const SNAP_NEEDS_HELPER = "That part needs the desktop helper (Stockfish and the opening book run there). Everything else works in this copy.";
 let snapIdx = null;
@@ -358,13 +361,18 @@ async function snapApi(path, body) {
   switch (p) {
     case "/api/rows": return { player: S.player, generated: S.generated, synced: S.generated, rows: S.rows };
     case "/api/summary": return S.summary;
-    case "/api/games": return S.games_list.slice(0, +(q.get("limit") || 60));
-    case "/api/game": { const g = S.games[q.get("id")]; if (!g) throw new Error("That game isn't stored in this copy."); return { id: q.get("id"), color: g.color, moves: g.moves, san: g.san, fens: [], url: g.url, tc: g.tc, result: g.result }; }
+    case "/api/games": { const mine = IS_SITE ? siteReviews() : {}; return S.games_list.slice(0, +(q.get("limit") || 60)).map(g => mine[g.id] ? { ...g, reviewed: true } : g); }
+    case "/api/game": { const g = S.games[q.get("id")]; if (!g) throw new Error("That game isn't stored in this copy.");
+      const fens = IS_SITE ? (await import("./sitereview.js")).replay(g.moves).fens : [];
+      return { id: q.get("id"), color: g.color, moves: g.moves, san: g.san, fens, url: g.url, tc: g.tc, result: g.result }; }
+    case "/api/analysis": { if (!IS_SITE) no(); const g = S.games[body.id], m = await import("./sitereview.js");
+      const r = m.buildReview({ id: body.id, color: g.color, moves: g.moves, san: g.san }, body.evals);
+      store.set("cc_site_reviews", { ...siteReviews(), [body.id]: r }); return r; }
     case "/api/position": { const id = body && snapIdx.full.get((body.moves || []).join(" ")); if (!id || String(body.fen).split(" ")[0] !== "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR") no(); return snapPositions(S.games[id]); }
     case "/api/explore": { const key = ((body && body.moves) || []).join(" "), id = snapIdx.full.get(key);
       if (id) { const g = S.games[id]; return { left_at: g.left_at, last_named: g.last_named, current: g.current }; }
       const oid = snapIdx.open.get(key + "|" + body.moves.length); if (oid) return { current: { name: S.games[oid].openName } }; no(); }
-    case "/api/review": { const r = S.reviews[q.get("id")]; if (!r) throw new Error("not reviewed"); return r; }
+    case "/api/review": { const r = S.reviews[q.get("id")] || (IS_SITE && siteReviews()[q.get("id")]); if (!r) throw new Error("not reviewed"); return r; }
     case "/api/moveacc": return S.moveacc[(q.get("tc") || "") + "|" + (q.get("color") || "")] || S.moveacc["|"];
     case "/api/opening/lines": return S.opening_lines;
     case "/api/opening/line": return S.opening_line[q.get("id")];
@@ -860,7 +868,7 @@ let reviewGames = [];
 async function renderReviewList() {
   const root = $("#tab-review");
   if (!root.dataset.built) {
-    root.innerHTML = `<div class="rvwrap"><div class="card scrollcard" id="rvList"></div><div class="card" id="rvDetail"><h2>Review</h2><p class="muted">Pick a game. Stockfish runs in this browser tab (10–30 seconds a game), then you get the board, every move marked, and your mistakes to step through. They’re also added to your practice puzzles.</p></div></div>`;
+    root.innerHTML = `<div class="rvwrap"><div class="card scrollcard" id="rvList"></div><div class="card" id="rvDetail"><h2>Review</h2><p class="muted">Pick a game. Stockfish runs in this browser tab (10–30 seconds a game), then you get the board, every move marked, and your mistakes to step through. ${IS_SITE ? "Reviews you run here are saved in this browser only." : "They’re also added to your practice puzzles."}</p></div></div>`;
     root.dataset.built = 1;
   }
   try { reviewGames = await api("/api/games?limit=500"); } catch (e) { $("#rvList").innerHTML = `<p class="loss">${esc(e.message)}</p>`; return; }
@@ -969,7 +977,7 @@ document.addEventListener("keydown", e => {
   else if (e.key === "Home") { rvGo(0); e.preventDefault(); } else if (e.key === "End") { rvGo(RV.positions.length - 1); e.preventDefault(); }
 });
 async function openGame(g) {
-  if (IS_SNAPSHOT && !g.reviewed) { $("#rvDetail").innerHTML = `<h2>Review</h2><p class="muted">Analysing a new game needs Stockfish, which runs in the desktop helper. In this copy you can open games that were already reviewed (marked ●), or click any game on a chart to step through it.</p>`; return; }
+  if (IS_SNAPSHOT && !IS_SITE && !g.reviewed) { $("#rvDetail").innerHTML = `<h2>Review</h2><p class="muted">Analysing a new game needs Stockfish, which runs in the desktop helper. In this copy you can open games that were already reviewed (marked ●), or click any game on a chart to step through it.</p>`; return; }
   const box = $("#rvDetail"); box.innerHTML = `<h2>Loading…</h2>`;
   try {
     const have = g.reviewed ? await api("/api/review?id=" + g.id) : null;
@@ -1615,7 +1623,7 @@ function gvBuild() {
         <div class="small dim">Moves · click to jump · ← → to step</div><div id="gvMoves" class="rvmoves gvmoves"></div>
         <div class="gvnav"><button class="btn" id="gvFirst" title="Start (Home)">⏮</button><button class="btn" id="gvPrev" title="Back (←)">◀</button><button class="btn" id="gvNext" title="Forward (→)">▶</button><button class="btn" id="gvLast" title="End (End)">⏭</button></div>
         <div class="gvlinks"><button class="btn" id="gvReview">Analyse in Review</button><a class="btn" href="${esc(r.url)}" target="_blank" rel="noopener" style="text-decoration:none">Open on chess.com</a></div></div></div>`;
-  if (IS_SNAPSHOT) { const eb = dlg.querySelector(".evalbar"); if (eb) eb.style.display = "none"; const rv = $("#gvReview"); if (rv) rv.style.display = "none"; }
+  if (IS_SNAPSHOT && !IS_SITE) { const eb = dlg.querySelector(".evalbar"); if (eb) eb.style.display = "none"; const rv = $("#gvReview"); if (rv) rv.style.display = "none"; }
   $("#gvClose").onclick = () => dlg.close();
   $("#gvFirst").onclick = () => gvGo(0); $("#gvPrev").onclick = () => gvGo(GV.cursor - 1); $("#gvNext").onclick = () => gvGo(GV.cursor + 1); $("#gvLast").onclick = () => gvGo(GV.positions.length - 1);
   $("#gvSeg").onclick = e => { const k = e.target.dataset.k; if (!k) return; if (k !== "start") store.set("cc_gv_view", k); gvGo(k === "start" ? 0 : k === "opening" ? GV.openPly : GV.positions.length - 1); };
@@ -1652,7 +1660,7 @@ function gvDraw() {
 }
 function gvGo(k) { if (!GV.positions.length) return; GV.cursor = Math.max(0, Math.min(GV.positions.length - 1, k)); gvDraw(); gvEval(); }
 async function gvEval() {
-  if (IS_SNAPSHOT) return;
+  if (IS_SNAPSHOT && !IS_SITE) return;
   const p = GV.positions[GV.cursor]; if (!p) return; const ticket = ++GV.ticket;
   if (p.mate) GV.ev = { cp: p.turn === "white" ? -10000 : 10000 };
   else if (p.over) GV.ev = { cp: 0 };

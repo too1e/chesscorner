@@ -5,6 +5,7 @@ import base64
 import datetime
 import json
 import os
+import shutil
 import time
 
 import chess
@@ -17,8 +18,11 @@ def _b64(path):
         return "data:image/svg+xml;base64," + base64.b64encode(f.read()).decode()
 
 
-def build(S):
-    """`S` is the helper's module namespace (globals() of server.py) so this file can reuse its helpers."""
+def build(S, site=False):
+    """`S` is the helper's module namespace (globals() of server.py) so this file can reuse its helpers.
+
+    `site` marks the copy published with Stockfish and sitereview.js beside it (see publish), so it can review games.
+    """
     stats, openings, book, training, analysis = S["stats"], S["openings"], S["book"], S["training"], S["analysis"]
     bk = book.get()
     raw = S["raw_games"]()
@@ -72,6 +76,7 @@ def build(S):
         "opening_report": openings.report(S["opening_games"]()),
         "opening_explore": opening_explore,
         "mates": S["mates_state"](),
+        "site": site,
         "pieces": {f[:-4]: _b64(os.path.join(HERE, "pieces", f)) for f in os.listdir(os.path.join(HERE, "pieces")) if f.endswith(".svg")},
     }
     blob = json.dumps(snapshot, separators=(",", ":")).replace("</", "<\\/")
@@ -82,6 +87,22 @@ def build(S):
         marker = "<script>"
     i = html.index(marker)
     return html[:i] + "<script>window.__SNAPSHOT__=" + blob + ";</script>\n" + html[i:]
+
+
+SITE_FILES = ["sitereview.js", "vendor/chess.js", "engine"]
+
+
+def publish(S, out_dir):
+    """Write the GitHub Pages copy: the page plus the files it needs to review games in the browser."""
+    with open(os.path.join(out_dir, "index.html"), "w", encoding="utf-8") as f:
+        f.write(build(S, site=True))
+    for rel in SITE_FILES:
+        src, dst = os.path.join(HERE, rel), os.path.join(out_dir, rel)
+        if os.path.isdir(src):
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+        else:
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(src, dst)
 
 
 def filename():
