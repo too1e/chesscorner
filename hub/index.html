@@ -1612,7 +1612,7 @@ function gvBuild() {
     <div class="gvbody"><div class="gvrow"><div class="evalbar"><div id="gvFill"></div><span id="gvEvalLab"></span></div><svg id="gvBoard" viewBox="0 0 400 400"></svg></div>
       <div class="gvright"><div class="seg" id="gvSeg"><button data-k="start">Start</button><button data-k="opening">Opening</button><button data-k="ending">Ending</button></div>
         <div id="gvCaption" class="gvcap"></div>
-        <div class="small dim">Moves · click to jump · ← → to step</div><div id="gvMoves" class="mvs gvmoves"></div>
+        <div class="small dim">Moves · click to jump · ← → to step</div><div id="gvMoves" class="rvmoves gvmoves"></div>
         <div class="gvnav"><button class="btn" id="gvFirst" title="Start (Home)">⏮</button><button class="btn" id="gvPrev" title="Back (←)">◀</button><button class="btn" id="gvNext" title="Forward (→)">▶</button><button class="btn" id="gvLast" title="End (End)">⏭</button></div>
         <div class="gvlinks"><button class="btn" id="gvReview">Analyse in Review</button><a class="btn" href="${esc(r.url)}" target="_blank" rel="noopener" style="text-decoration:none">Open on chess.com</a></div></div></div>`;
   if (IS_SNAPSHOT) { const eb = dlg.querySelector(".evalbar"); if (eb) eb.style.display = "none"; const rv = $("#gvReview"); if (rv) rv.style.display = "none"; }
@@ -1633,7 +1633,10 @@ function gvDraw() {
   const p = GV.positions[GV.cursor], n = GV.positions.length - 1; if (!p || !$("#gvBoard")) return;
   renderGeneric($("#gvBoard"), { fen: p.fen, flip: GV.flip, last: p.last });
   gvBar();
-  $("#gvMoves").innerHTML = GV.positions.slice(1).map((x, k) => `<span class="mv ${k + 1 === GV.cursor ? "on" : ""}" data-k="${k + 1}">${esc(gvLabel(k, x.san))}</span>`).join(" ");
+  // same chess.com-style list as the review tab: one row per move number, white then black
+  const cell = k => { const x = GV.positions[k + 1]; return x ? `<span class="mv ${k + 1 === GV.cursor ? "on" : ""}" data-k="${k + 1}">${esc(x.san)}</span>` : "<span></span>"; };
+  let rows = ""; for (let k = 0; k < n; k += 2) rows += `<div class="mvrow"><span class="mvn">${k / 2 + 1}.</span>${cell(k)}${cell(k + 1)}</div>`;
+  $("#gvMoves").innerHTML = rows;
   const on = $("#gvMoves .mv.on"); if (on) on.scrollIntoView({ block: "nearest" });
   const which = GV.cursor === 0 ? "start" : GV.cursor === GV.openPly ? "opening" : GV.cursor === n ? "ending" : "";
   document.querySelectorAll("#gvSeg button").forEach(b => b.classList.toggle("on", b.dataset.k === which));
