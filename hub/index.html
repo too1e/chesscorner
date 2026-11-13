@@ -652,10 +652,11 @@ ${Math.round(s.left * 100)}% of your starting time · games lost on time exclude
   const loseHalf = !single
     ? `<h2>How you lose, by mode</h2>${TCS.map(tc => lossStack(tc, byTc(tc))).join("")}`
     : `<h2>How you lose · ${MODE}</h2>${[...byColour, ...byOpp, ...(ctlGroups.length > 1 ? ctlGroups.slice(0, 2) : [])].map(([l, g]) => lossStack(l, g)).join("")}`;
-  html += `<h2 class="sect">Results</h2><div class="grid three">
+  // the published copy leaves out time of day; the local app keeps it
+  html += `<h2 class="sect">Results</h2><div class="grid ${IS_SNAPSHOT ? "two" : "three"}">
     <div class="card">${resultsHalf}</div>
     <div class="card">${loseHalf}<div class="legend">${Object.entries(reasonColor).map(([k, c]) => `<span><i class="sw" style="background:${c}"></i>${k}</span>`).join("")}</div></div>
-    <div class="card fcol"><h2>Win rate by time of day</h2>${timeCard(F)}</div></div>`;
+    ${IS_SNAPSHOT ? "" : `<div class="card fcol"><h2>Win rate by time of day</h2>${timeCard(F)}</div>`}</div>`;
 
   // ---- openings
   const openTable = c => { const by = {}; F.filter(r => r.color === c && r.opening).forEach(r => (by[r.opening] ??= []).push(r));
@@ -693,7 +694,7 @@ function outcomeText(r) {
 function gameTip(r, o = {}) {
   // one headline number per chart: your rating on the rating chart, accuracy on the accuracy chart; everything else is secondary
   const rating = o.focus !== "accuracy", d = new Date(r.t * 1000), moves = r.plies ? Math.ceil(r.plies / 2) : null;
-  const when = d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + ", " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const when = d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + (IS_SNAPSHOT ? "" : ", " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }));
   const delta = o.prev != null ? `<span class="${r.rating >= o.prev ? "win" : "loss"} tdelta">${signed(r.rating - o.prev)}</span>` : "";
   const headline = rating
     ? `<span class="tk">${r.rating}</span>${delta}<span class="dim ts">vs ${r.opp}</span>`
