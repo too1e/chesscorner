@@ -3,6 +3,7 @@ that works offline on any device. The helper-only parts (Stockfish, the opening 
 """
 import base64
 import datetime
+import hashlib
 import json
 import os
 import shutil
@@ -79,6 +80,10 @@ def build(S, site=False):
         "site": site,
         "pieces": {f[:-4]: _b64(os.path.join(HERE, "pieces", f)) for f in os.listdir(os.path.join(HERE, "pieces")) if f.endswith(".svg")},
     }
+    if site:
+        snapshot["unlock"] = unlock_check()
+        snapshot["summary"]["bot"] = []   # the desk bot tab isn't part of the public copy
+        snapshot["mate_puzzles"] = mate_puzzles(S, rows)
     blob = json.dumps(snapshot, separators=(",", ":")).replace("</", "<\\/")
     with open(os.path.join(HERE, "index.html"), encoding="utf-8") as f:
         html = f.read()
@@ -89,7 +94,39 @@ def build(S, site=False):
     return html[:i] + "<script>window.__SNAPSHOT__=" + blob + ";</script>\n" + html[i:]
 
 
-SITE_FILES = ["sitereview.js", "vendor/chess.js", "engine"]
+PASSWORD_PATH = os.path.join(HERE, ".site_password")   # kept out of git; one line, the password itself
+
+
+def unlock_check():
+    """Salted hash of the owner's password, so the published page can show game times once it's typed in, or None."""
+    try:
+        with open(PASSWORD_PATH, encoding="utf-8") as f:
+            pw = f.read().strip()
+    except OSError:
+        return None
+    if not pw:
+        return None
+    salt = "chesscorner"   # fixed, so an unlocked browser stays unlocked after the site is refreshed
+    return {"salt": salt, "hash": hashlib.sha256((salt + pw).encode()).hexdigest()}
+
+
+def mate_puzzles(S, rows):
+    """Every missed mate as a practice puzzle, with the first step already judged: a mate in 3 can take the
+    browser half a minute to search, so the site only searches the shorter positions that follow."""
+    out = []
+    for p in S["mates"].puzzles(S["mates"].load_cache(), rows, {}):
+        try:
+            board = chess.Board(p["fen"])
+            out.append({"id": p["id"], "fen": p["fen"], "n": p["n"], "t": p["t"], "played": board.san(chess.Move.from_uci(p["played"])),
+                        "san": [board.san(chess.Move.from_uci(u)) for u in p["best"][:3]],
+                        "wrong": S["mate_move"](p["fen"], "0000", p["n"])["best"],
+                        "right": {u: S["mate_move"](p["fen"], u, p["n"]) for u in p["best"]}})
+        except Exception:
+            continue
+    return out
+
+
+SITE_FILES = ["sitereview.js", "sitemates.js", "vendor/chess.js", "engine"]
 
 
 def publish(S, out_dir):

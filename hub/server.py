@@ -422,7 +422,7 @@ def first_sans(g):
 
 
 def opening_games():
-    """Each rated game's colour and first 24 plies, for the 'where do I leave the book' report."""
+    """Each rated game's color and first 24 plies, for the 'where do I leave the book' report."""
     return [{"color": user_color(g), "san": s} for g in raw_games() if (s := first_sans(g))]
 
 

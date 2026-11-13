@@ -345,7 +345,33 @@ const store = { get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)
 const IS_SNAPSHOT = !!window.__SNAPSHOT__;
 // the published site ships Stockfish and sitereview.js next to the page, so it can review games (saved in this browser only)
 const IS_SITE = IS_SNAPSHOT && !!window.__SNAPSHOT__.site;
+// game times are hidden on the published copy; the owner unlocks them with a password (double-click the status text).
+// This only hides them from view: the timestamps are still in the page's data.
+const UNLOCK = IS_SNAPSHOT && window.__SNAPSHOT__.unlock;
+const SHOW_TIMES = !IS_SNAPSHOT || !!(UNLOCK && store.get("cc_times_unlocked", "") === UNLOCK.hash);
+async function tryUnlock(pw) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(UNLOCK.salt + pw));
+  const hex = [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
+  if (hex !== UNLOCK.hash) return false;
+  store.set("cc_times_unlocked", hex); location.reload(); return true;
+}
+function unlockPrompt() {
+  if (!UNLOCK || $("#unlockBox")) return;
+  if (SHOW_TIMES) { store.set("cc_times_unlocked", ""); location.reload(); return; }   // double-click again to lock
+  const box = el("input", { id: "unlockBox", type: "password", placeholder: "password", autocomplete: "current-password" });
+  box.style.cssText = "margin-left:8px;width:120px;font:11px var(--mono);background:var(--panel);color:var(--fg);border:1px solid var(--line2);padding:2px 6px";
+  box.onkeydown = async e => { if (e.key === "Escape") box.remove(); if (e.key === "Enter" && !(await tryUnlock(box.value))) { box.value = ""; box.style.borderColor = "var(--bad)"; } };
+  $("#statusTxt").after(box); box.focus();
+}
 const siteReviews = () => store.get("cc_site_reviews", {});
+// missed-mate practice on the site: puzzles come baked in (first step pre-judged), progress lives in this browser
+const siteMateProgress = () => store.get("cc_site_mate_progress", {});
+function siteMateItems() {
+  const prog = siteMateProgress();
+  return (window.__SNAPSHOT__.mate_puzzles || []).map(p => ({ ...p, ...(prog[p.id] || { box: 0, due: new Date().toLocaleDateString("en-CA"), tries: 0, solved: 0 }) }));
+}
+const siteMateDue = items => { const on = new Date().toLocaleDateString("en-CA");
+  return items.filter(p => p.box < 5 && p.due <= on).sort((a, b) => a.n - b.n || (a.due < b.due ? -1 : a.due > b.due ? 1 : 0) || b.t - a.t); };
 const pieceUrl = code => IS_SNAPSHOT ? window.__SNAPSHOT__.pieces[code] : `pieces/${code}.svg`;
 const SNAP_NEEDS_HELPER = "That part needs the desktop helper (Stockfish and the opening book run there). Everything else works in this copy.";
 let snapIdx = null;
@@ -368,7 +394,8 @@ async function snapApi(path, body) {
     case "/api/analysis": { if (!IS_SITE) no(); const g = S.games[body.id], m = await import("./sitereview.js");
       const r = m.buildReview({ id: body.id, color: g.color, moves: g.moves, san: g.san }, body.evals);
       store.set("cc_site_reviews", { ...siteReviews(), [body.id]: r }); return r; }
-    case "/api/position": { const id = body && snapIdx.full.get((body.moves || []).join(" ")); if (!id || String(body.fen).split(" ")[0] !== "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR") no(); return snapPositions(S.games[id]); }
+    case "/api/position": { if (IS_SITE) return (await import("./sitemates.js")).positionInfo(body.fen, body.moves || []);
+      const id = body && snapIdx.full.get((body.moves || []).join(" ")); if (!id || String(body.fen).split(" ")[0] !== "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR") no(); return snapPositions(S.games[id]); }
     case "/api/explore": { const key = ((body && body.moves) || []).join(" "), id = snapIdx.full.get(key);
       if (id) { const g = S.games[id]; return { left_at: g.left_at, last_named: g.last_named, current: g.current }; }
       const oid = snapIdx.open.get(key + "|" + body.moves.length); if (oid) return { current: { name: S.games[oid].openName } }; no(); }
@@ -379,7 +406,14 @@ async function snapApi(path, body) {
     case "/api/opening/report": return S.opening_report;
     case "/api/opening/explore": { const d = S.opening_explore[q.get("name") + "|" + q.get("color")]; if (!d) throw new Error("No games for that opening in this copy."); return d; }
     case "/api/opening/record": return { ok: true };
-    case "/api/mates": return S.mates;
+    case "/api/mates": { if (!IS_SITE) return S.mates; const items = siteMateItems();
+      return { ...S.mates, practice: { total: items.length, due: siteMateDue(items).length, solved: items.filter(p => p.box >= 5).length } }; }
+    case "/api/mates/practice": { if (!IS_SITE) no(); return { puzzles: siteMateDue(siteMateItems()).slice(0, +(q.get("limit") || 10)) }; }
+    case "/api/mates/move": { if (!IS_SITE) no(); const p = S.mate_puzzles.find(x => x.fen === body.fen && x.n === body.n);
+      if (p) return p.right[body.move] || { ok: false, best: p.wrong };
+      return (await import("./sitemates.js")).mateMove(body.fen, body.move, body.n); }
+    case "/api/mates/record": { if (!IS_SITE) no(); const m = await import("./sitemates.js"), prog = siteMateProgress();
+      prog[body.id] = m.record(prog[body.id] || { box: 0, due: m.today(), tries: 0, solved: 0 }, !!body.correct); store.set("cc_site_mate_progress", prog); return { ok: true }; }
     default: no();
   }
 }
@@ -511,7 +545,7 @@ function habitsHTML(F) {
     { name: "Castling", freq: `${pct(castled.length, withF.length)}% of games`, a: castled, b: notCastled, al: "castled", bl: "didn't", verdict: "when castled" },
     { name: "Early queen", freq: `${pct(qe.length, withF.length)}% by move 5`, a: qe, b: qn, al: "queen early", bl: "queen later", verdict: "with an early queen" },
     { name: "Opponent rating", freq: `${pct(hi.length, F.length)}% higher`, a: hi, b: lo, al: "higher-rated", bl: "equal / lower", neutral: true, verdict: "vs higher-rated" },
-    { name: "Colour", freq: `${pct(white.length, F.length)}% as white`, a: white, b: black, al: "as white", bl: "as black", neutral: true, verdict: "as white" },
+    { name: "Color", freq: `${pct(white.length, F.length)}% as white`, a: white, b: black, al: "as white", bl: "as black", neutral: true, verdict: "as white" },
   ];
   return `<div class="habgrid">` + habits.map(h => {
     const a = wr(h.a), b = wr(h.b), small = Math.min(h.a.length, h.b.length) < 10;
@@ -625,8 +659,8 @@ function renderOverview() {
   const single = MODE !== "all";
   const ctlGroups = [...groupBy(F, r => CONTROL_LABEL(r.control) || "other").entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 4);
   const timeRows = single ? ctlGroups.map(([label, g]) => ({ label, g })) : TCS.map(tc => ({ label: tc, g: byTc(tc) }));
-  const tm = timeRows.map(({ label, g }) => { const a = g.filter(r => r.avg_sec != null).map(r => r.avg_sec), left = g.filter(r => r.clock_left != null && r.result !== "timeout").map(r => r.clock_left).sort((x, y) => x - y);
-    const secLeft = g.filter(r => r.clock_left != null && r.result !== "timeout" && baseSec(r.control)).map(r => r.clock_left * baseSec(r.control)).sort((x, y) => x - y);
+  const tm = timeRows.map(({ label, g }) => { const a = g.filter(r => r.avg_sec != null).map(r => r.avg_sec), left = g.filter(r => r.clock_left != null).map(r => r.clock_left).sort((x, y) => x - y);
+    const secLeft = g.filter(r => r.clock_left != null && baseSec(r.control)).map(r => r.clock_left * baseSec(r.control)).sort((x, y) => x - y);
     const base = g.length && baseSec(g[0].control);
     return { label, n: g.length, avg: a.length ? mean(a) : null, left: left.length ? left[Math.floor(left.length / 2)] : null, leftSec: secLeft.length ? secLeft[Math.floor(secLeft.length / 2)] : null, base: single ? base : null }; });
   const maxS = Math.max(...tm.map(s => s.avg || 0), 1);
@@ -640,7 +674,7 @@ function renderOverview() {
   html += `<h2 class="sect">How you play</h2><div class="grid two">
     <div class="card"><h2>Time management${single ? ` · ${MODE} by time control` : ""}</h2><div class="small dim" style="margin-bottom:6px">Seconds per move</div><div class="bars" style="grid-template-columns:${tmCols}">${tm.map(s => `<span class="dim">${s.label}</span><div class="track"${tip(`${s.label}: ${s.avg == null ? "no data" : s.avg.toFixed(1) + " seconds per move on average"}\n${s.n} games`)}><div class="fill" style="width:${100 * (s.avg || 0) / maxS}%"></div></div><span class="muted">${s.avg == null ? "–" : s.avg.toFixed(1) + "s"}</span>`).join("")}</div>
       <div class="small dim" style="margin:16px 0 6px">Time left on your clock when the game ended · median</div><div class="bars" style="grid-template-columns:${tmCols}">${tm.map(s => `<span class="dim">${s.label}</span><div class="track"${tip(s.leftSec == null ? `${s.label}: no data` : `${s.label}: you typically have ${fmtClock(s.leftSec)} left when a game ends${s.base ? ` (of ${fmtClock(s.base)})` : ""}
-${Math.round(s.left * 100)}% of your starting time · games lost on time excluded`)}><div class="fill" style="width:${s.left == null ? 0 : 100 * s.left}%"></div></div><span class="muted">${s.leftSec == null ? "–" : fmtClock(s.leftSec)}</span>`).join("")}</div>
+${Math.round(s.left * 100)}% of your starting time · games lost on time included`)}><div class="fill" style="width:${s.left == null ? 0 : 100 * s.left}%"></div></div><span class="muted">${s.leftSec == null ? "–" : fmtClock(s.leftSec)}</span>`).join("")}</div>
       ${single ? `<div class="small dim" style="margin-top:16px">Seconds per move, game by game</div>${spark(rollingMean(F.filter(r => r.avg_sec != null).map(r => r.avg_sec), 10), 48, "Seconds per move · 10-game average", "s", 1)}` : ""}</div>
     <div class="card"><h2>Checks per game, by piece</h2><div class="bars" style="grid-template-columns:128px 1fr 70px">${checks}</div><div class="legend" style="margin-top:6px"><span><i class="sw" style="background:#fff"></i>you give</span><span><i class="sw" style="background:#5c5c5c"></i>you receive</span></div>
       ${(() => { const mf = withF.filter(r => r.mate && r.mate.by === "me"), ma = withF.filter(r => r.mate && r.mate.by === "opp");
@@ -649,22 +683,22 @@ ${Math.round(s.left * 100)}% of your starting time · games lost on time exclude
   // ---- results
   const resultStack = (label, g) => { const w = g.filter(r => r.outcome === "win").length, d = g.filter(r => r.outcome === "draw").length, l = g.length - w - d; if (!g.length) return "";
     return `<div style="margin:4px 0 11px"><div class="small" style="display:flex;justify-content:space-between"><span class="mono" style="text-transform:uppercase;letter-spacing:.1em">${label}</span><span class="muted mono">${w}W ${d}D ${l}L${g.length ? " · " + pct(w, g.length) + "%" : ""}</span></div>
-      <div class="stack" style="margin-top:5px"><div${tip(`${label} wins: ${w} (${pct(w, g.length)}%)`)} style="width:${pct(w, g.length)}%;background:var(--good)"></div><div${tip(`${label} draws: ${d} (${pct(d, g.length)}%)`)} style="width:${pct(d, g.length)}%;background:#666"></div><div${tip(`${label} losses: ${l} (${pct(l, g.length)}%)`)} style="width:${pct(l, g.length)}%;background:#2b2b2b"></div></div></div>`; };
+      <div class="stack" style="margin-top:5px"><div${tip(`${label} wins: ${w} (${pct(w, g.length)}%)`)} style="width:${pct(w, g.length)}%;background:var(--good)"></div><div${tip(`${label} draws: ${d} (${pct(d, g.length)}%)`)} style="width:${pct(d, g.length)}%;background:#777"></div><div${tip(`${label} losses: ${l} (${pct(l, g.length)}%)`)} style="width:${pct(l, g.length)}%;background:#7a3535"></div></div></div>`; };
   const lossStack = (label, g) => { const ls = g.filter(r => r.outcome === "loss"), c = {}; ls.forEach(r => c[r.result] = (c[r.result] || 0) + 1); if (!ls.length) return "";
     return `<div style="margin:6px 0"><div class="small dim mono" style="text-transform:uppercase;letter-spacing:.1em">${label} · ${ls.length} losses</div><div class="stack" style="margin-top:4px">${Object.entries(c).sort((x, y) => Object.keys(reasonColor).indexOf(x[0]) - Object.keys(reasonColor).indexOf(y[0])).map(([k, v]) => `<div${tip(`${label} · ${k}: ${v} of ${ls.length} losses (${pct(v, ls.length)}%)`)} style="width:${pct(v, ls.length)}%;background:${reasonColor[k] || "#555"}"></div>`).join("")}</div></div>`; };
-  const byColour = ["white", "black"].map(c => [`as ${c}`, F.filter(r => r.color === c)]);
+  const byColor = ["white", "black"].map(c => [`as ${c}`, F.filter(r => r.color === c)]);
   const byOpp = [["vs higher-rated", F.filter(r => r.opp > r.rating)], ["vs equal / lower", F.filter(r => r.opp <= r.rating)]];
   const resultsHalf = !single
     ? `<h2>Results by mode</h2>${TCS.map(tc => resultStack(tc, byTc(tc))).join("")}`
-    : `<h2>Results · ${MODE} in depth</h2><div class="small dim" style="margin:0 0 6px">By time control</div>${ctlGroups.map(([l, g]) => resultStack(l, g)).join("")}<div class="small dim" style="margin:10px 0 6px">By colour</div>${byColour.map(([l, g]) => resultStack(l, g)).join("")}`;
+    : `<h2>Results · ${MODE} in depth</h2><div class="small dim" style="margin:0 0 6px">By time control</div>${ctlGroups.map(([l, g]) => resultStack(l, g)).join("")}<div class="small dim" style="margin:10px 0 6px">By color</div>${byColor.map(([l, g]) => resultStack(l, g)).join("")}`;
   const loseHalf = !single
     ? `<h2>How you lose, by mode</h2>${TCS.map(tc => lossStack(tc, byTc(tc))).join("")}`
-    : `<h2>How you lose · ${MODE}</h2>${[...byColour, ...byOpp, ...(ctlGroups.length > 1 ? ctlGroups.slice(0, 2) : [])].map(([l, g]) => lossStack(l, g)).join("")}`;
-  // the published copy leaves out time of day; the local app keeps it
-  html += `<h2 class="sect">Results</h2><div class="grid ${IS_SNAPSHOT ? "two" : "three"}">
+    : `<h2>How you lose · ${MODE}</h2>${[...byColor, ...byOpp, ...(ctlGroups.length > 1 ? ctlGroups.slice(0, 2) : [])].map(([l, g]) => lossStack(l, g)).join("")}`;
+  // the published copy leaves out time of day unless unlocked; the local app keeps it
+  html += `<h2 class="sect">Results</h2><div class="grid ${SHOW_TIMES ? "three" : "two"}">
     <div class="card">${resultsHalf}</div>
     <div class="card">${loseHalf}<div class="legend">${Object.entries(reasonColor).map(([k, c]) => `<span><i class="sw" style="background:${c}"></i>${k}</span>`).join("")}</div></div>
-    ${IS_SNAPSHOT ? "" : `<div class="card fcol"><h2>Win rate by time of day</h2>${timeCard(F)}</div>`}</div>`;
+    ${!SHOW_TIMES ? "" : `<div class="card fcol"><h2>Win rate by time of day</h2>${timeCard(F)}</div>`}</div>`;
 
   // ---- openings
   const openTable = c => { const by = {}; F.filter(r => r.color === c && r.opening).forEach(r => (by[r.opening] ??= []).push(r));
@@ -702,7 +736,7 @@ function outcomeText(r) {
 function gameTip(r, o = {}) {
   // one headline number per chart: your rating on the rating chart, accuracy on the accuracy chart; everything else is secondary
   const rating = o.focus !== "accuracy", d = new Date(r.t * 1000), moves = r.plies ? Math.ceil(r.plies / 2) : null;
-  const when = d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + (IS_SNAPSHOT ? "" : ", " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }));
+  const when = d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + (!SHOW_TIMES ? "" : ", " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }));
   const delta = o.prev != null ? `<span class="${r.rating >= o.prev ? "win" : "loss"} tdelta">${signed(r.rating - o.prev)}</span>` : "";
   const headline = rating
     ? `<span class="tk">${r.rating}</span>${delta}<span class="dim ts">vs ${r.opp}</span>`
@@ -1478,7 +1512,7 @@ async function renderMates() {
       canPick: sq => MT.state === "await" && mtOwn(MT.fen && fenPieces(MT.fen)[sq]) && MT.legal.some(u => u.startsWith(sq)),
       getSel: () => MT.sel, setSel: s => { MT.sel = s; mtDraw(); }, onMove: mtPlay });
     MT.msg = `<span class="muted">Press <b>Start session</b> to practise the mates you missed.</span>`; mtDraw();
-    if (IS_SNAPSHOT) $("#mtPractice").innerHTML = `<div><h2>Practice</h2><p class="muted">${SNAP_NEEDS_HELPER}</p></div>`;
+    if (IS_SNAPSHOT && !IS_SITE) $("#mtPractice").innerHTML = `<div><h2>Practice</h2><p class="muted">${SNAP_NEEDS_HELPER}</p></div>`;
   }
   let m;
   try { m = await api("/api/mates"); } catch (e) { $("#mtStats").innerHTML = `<h2>Missed mates</h2><p class="loss small">${esc(e.message)}</p>`; return; }
@@ -1487,15 +1521,16 @@ async function renderMates() {
     ${m.per.map(x => { const pct = x.rate == null ? 0 : Math.round(100 * x.rate);
       return `<div class="meter"${tip(`Mate in ${x.n}\n${x.chances} chances in ${x.games} games\n${x.taken} found · ${x.missed} missed${x.rate == null ? "" : `\nYou find ${pct}% of them`}`)}><div class="mh"><span>Mate in ${x.n}</span><span class="mono ${x.chances ? "" : "dim"}">${x.chances ? `<span class="win">${x.taken}</span> found · <span class="loss">${x.missed}</span> missed · ${pct}%` : "none yet"}</span></div><div class="track"><div class="fill" style="width:${pct}%"></div></div></div>`; }).join("")}
     <div class="small muted" style="margin-top:4px">${anyChance ? `You've had <b style="color:var(--fg)">${anyChance}</b> forced mates in your games and missed <b style="color:var(--fg)">${anyMissed}</b>.` : (m.scanning ? "Scanning your games…" : "No forced mates found in your games yet.")}${m.scanning ? "" : " Mate in 3 counts only mates that start with a check or leave them 3 or fewer replies."}</div>`;
-  const o = m.outcome, any = m.outcome_any, anyT = any.win + any.draw + any.loss;
-  const bar = (v, t) => t ? `<div class="mtbar"><i style="flex:${v.win};background:var(--good)"></i><i style="flex:${v.draw};background:#777"></i><i style="flex:${v.loss};background:#7a3535"></i></div>` : `<div class="mtbar"></div>`;
-  const orows = [1, 2, 3].map(n => [`Missed a mate in ${n}`, o[String(n)]]).concat(anyT ? [["Missed any mate", any]] : []).map(([label, v]) => [label, v, v.win + v.draw + v.loss]).filter(r => r[2]);
+  const o = m.outcome;
+  const orows = [1, 2, 3].map(n => [`Missed a mate in ${n}`, o[String(n)]]).map(([label, v]) => [label, v, v.win + v.draw + v.loss]).filter(r => r[2]);
+  const maxT = Math.max(1, ...orows.map(r => r[2]));
+  const bar = (v, t) => t ? `<div class="mtbar" style="width:${100 * t / maxT}%"><i style="flex:${v.win};background:var(--good)"></i><i style="flex:${v.draw};background:#777"></i><i style="flex:${v.loss};background:#7a3535"></i></div>` : `<div class="mtbar"></div>`;
   $("#mtOutcome").innerHTML = `<h2>Games where you missed a mate</h2>
-    ${orows.map(([label, v, t]) => `<div class="meter"${tip(`${label}: ${t} game${t === 1 ? "" : "s"}\nWon ${v.win} · drew ${v.draw} · lost ${v.loss}`)}><div class="mh"><span>${label}</span><span class="mono"><span class="win">${v.win}W</span> <span class="draw">${v.draw}D</span> <span class="loss">${v.loss}L</span></span></div>${bar(v, t)}</div>`).join("") || `<p class="muted small">${m.scanning ? "Scanning…" : "No missed mates yet."}</p>`}
-    ${IS_SNAPSHOT ? "" : `<div class="small muted" style="margin-top:6px">Practice: <b style="color:var(--fg)">${pr.due}</b> due · ${pr.total} saved · ${pr.solved} mastered</div>`}`;
+    ${orows.map(([label, v, t]) => `<div class="meter"${tip(`${label}: ${t} game${t === 1 ? "" : "s"}\nWon ${v.win} · drew ${v.draw} · lost ${v.loss}`)}><div class="mh"><span>${label}</span><span class="mono"><span class="win">${v.win}W</span> <span class="draw">${v.draw}D</span> <span class="loss">${v.loss}L</span> <span class="dim">· ${t}</span></span></div>${bar(v, t)}</div>`).join("") || `<p class="muted small">${m.scanning ? "Scanning…" : "No missed mates yet."}</p>`}
+    ${IS_SNAPSHOT && !IS_SITE ? "" : `<div class="small muted" style="margin-top:6px">Practice: <b style="color:var(--fg)">${pr.due}</b> due · ${pr.total} saved · ${pr.solved} mastered</div>`}`;
   clearTimeout(MT.poll);
   if (m.scanning) MT.poll = setTimeout(() => { if (!root.classList.contains("hide")) renderMates(); }, 6000);
-  if (!IS_SNAPSHOT && !MT.started) mtStart();
+  if ((!IS_SNAPSHOT || IS_SITE) && !MT.started) mtStart();
 }
 
 function renderBot() {
@@ -1717,6 +1752,8 @@ async function loadAll() {
   }
   $("#offline").classList.toggle("hide", online);
   $("#refreshBtn").disabled = !online;
+  if (UNLOCK) $("#statusTxt").ondblclick = unlockPrompt;
+  if (IS_SITE) { const bb = document.querySelector('#tabs button[data-tab="bot"]'); if (bb) bb.remove(); }
   if (IS_SNAPSHOT) { setStatus(false, "OFFLINE COPY · " + fmtShort(GENERATED)); $("#refreshBtn").classList.add("hide"); const eb = $("#exportBtn"); if (eb) eb.classList.add("hide"); }
   if (online) { if (!IS_SNAPSHOT) setStatus(true, liveText()); S = await api("/api/summary").catch(() => null); if (retry) { clearInterval(retry); retry = null; } }
   else {

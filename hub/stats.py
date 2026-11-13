@@ -172,7 +172,7 @@ def summary(bot_games=None):
     for tc in TIME_CLASSES:
         sub = [r for r in rs if r["tc"] == tc]
         avgs = [r["avg_sec"] for r in sub if r["avg_sec"] is not None]
-        left = [r["clock_left"] for r in sub if r["clock_left"] is not None and r["result"] != "timeout"]
+        left = [r["clock_left"] for r in sub if r["clock_left"] is not None]
         losses = [r for r in sub if r["outcome"] == "loss"]
         time_habits[tc] = {"games": len(sub), "avg_sec": statistics.mean(avgs) if avgs else None,
                            "median_left": statistics.median(left) if left else None,
