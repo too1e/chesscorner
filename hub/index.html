@@ -345,23 +345,22 @@ const store = { get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)
 const IS_SNAPSHOT = !!window.__SNAPSHOT__;
 // the published site ships Stockfish and sitereview.js next to the page, so it can review games (saved in this browser only)
 const IS_SITE = IS_SNAPSHOT && !!window.__SNAPSHOT__.site;
-// game times are hidden on the published copy; the owner unlocks them with a password (double-click the status text).
+// game times are hidden on the published copy; the owner shows them with a secret knock on the status text:
+// "shave and a haircut... two bits" (5 quick taps, a pause, 2 quick taps). The same knock hides them again.
 // This only hides them from view: the timestamps are still in the page's data.
-const UNLOCK = IS_SNAPSHOT && window.__SNAPSHOT__.unlock;
-const SHOW_TIMES = !IS_SNAPSHOT || !!(UNLOCK && store.get("cc_times_unlocked", "") === UNLOCK.hash);
-async function tryUnlock(pw) {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(UNLOCK.salt + pw));
-  const hex = [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
-  if (hex !== UNLOCK.hash) return false;
-  store.set("cc_times_unlocked", hex); location.reload(); return true;
-}
-function unlockPrompt() {
-  if (!UNLOCK || $("#unlockBox")) return;
-  if (SHOW_TIMES) { store.set("cc_times_unlocked", ""); location.reload(); return; }   // double-click again to lock
-  const box = el("input", { id: "unlockBox", type: "password", placeholder: "password", autocomplete: "current-password" });
-  box.style.cssText = "margin-left:8px;width:120px;font:11px var(--mono);background:var(--panel);color:var(--fg);border:1px solid var(--line2);padding:2px 6px";
-  box.onkeydown = async e => { if (e.key === "Escape") box.remove(); if (e.key === "Enter" && !(await tryUnlock(box.value))) { box.value = ""; box.style.borderColor = "var(--bad)"; } };
-  $("#statusTxt").after(box); box.focus();
+const SHOW_TIMES = !IS_SNAPSHOT || store.get("cc_times_unlocked", "") === "knock";
+const KNOCK = [5, 2], KNOCK_PAUSE = 400, KNOCK_DONE = 1200;   // ms: a longer gap starts a new group; silence ends the knock
+let knockTaps = [], knockTimer = null;
+function knockTap() {
+  knockTaps.push(performance.now());
+  clearTimeout(knockTimer);
+  knockTimer = setTimeout(() => {
+    const groups = [1];
+    for (let i = 1; i < knockTaps.length; i++) { if (knockTaps[i] - knockTaps[i - 1] > KNOCK_PAUSE) groups.push(1); else groups[groups.length - 1]++; }
+    knockTaps = [];
+    if (groups.join() !== KNOCK.join()) return;
+    store.set("cc_times_unlocked", SHOW_TIMES ? "" : "knock"); location.reload();
+  }, KNOCK_DONE);
 }
 const siteReviews = () => store.get("cc_site_reviews", {});
 // missed-mate practice on the site: puzzles come baked in (first step pre-judged), progress lives in this browser
@@ -1752,7 +1751,7 @@ async function loadAll() {
   }
   $("#offline").classList.toggle("hide", online);
   $("#refreshBtn").disabled = !online;
-  if (UNLOCK) $("#statusTxt").ondblclick = unlockPrompt;
+  if (IS_SNAPSHOT) { const st = $("#statusTxt"); st.style.userSelect = "none"; st.onclick = knockTap; }
   if (IS_SITE) { const bb = document.querySelector('#tabs button[data-tab="bot"]'); if (bb) bb.remove(); }
   if (IS_SNAPSHOT) { setStatus(false, "OFFLINE COPY · " + fmtShort(GENERATED)); $("#refreshBtn").classList.add("hide"); const eb = $("#exportBtn"); if (eb) eb.classList.add("hide"); }
   if (online) { if (!IS_SNAPSHOT) setStatus(true, liveText()); S = await api("/api/summary").catch(() => null); if (retry) { clearInterval(retry); retry = null; } }

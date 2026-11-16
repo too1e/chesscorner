@@ -3,7 +3,6 @@ that works offline on any device. The helper-only parts (Stockfish, the opening 
 """
 import base64
 import datetime
-import hashlib
 import json
 import os
 import shutil
@@ -81,7 +80,6 @@ def build(S, site=False):
         "pieces": {f[:-4]: _b64(os.path.join(HERE, "pieces", f)) for f in os.listdir(os.path.join(HERE, "pieces")) if f.endswith(".svg")},
     }
     if site:
-        snapshot["unlock"] = unlock_check()
         snapshot["summary"]["bot"] = []   # the desk bot tab isn't part of the public copy
         snapshot["mate_puzzles"] = mate_puzzles(S, rows)
     blob = json.dumps(snapshot, separators=(",", ":")).replace("</", "<\\/")
@@ -92,22 +90,6 @@ def build(S, site=False):
         marker = "<script>"
     i = html.index(marker)
     return html[:i] + "<script>window.__SNAPSHOT__=" + blob + ";</script>\n" + html[i:]
-
-
-PASSWORD_PATH = os.path.join(HERE, ".site_password")   # kept out of git; one line, the password itself
-
-
-def unlock_check():
-    """Salted hash of the owner's password, so the published page can show game times once it's typed in, or None."""
-    try:
-        with open(PASSWORD_PATH, encoding="utf-8") as f:
-            pw = f.read().strip()
-    except OSError:
-        return None
-    if not pw:
-        return None
-    salt = "chesscorner"   # fixed, so an unlocked browser stays unlocked after the site is refreshed
-    return {"salt": salt, "hash": hashlib.sha256((salt + pw).encode()).hexdigest()}
 
 
 def mate_puzzles(S, rows):
