@@ -538,7 +538,7 @@ function habitsHTML(F) {
   const withF = F.filter(r => r.cm), wr = a => a.length ? 100 * a.filter(r => r.outcome === "win").length / a.length : null;
   const castled = withF.filter(r => r.cast_me != null), notCastled = withF.filter(r => r.cast_me == null);
   const qe = withF.filter(r => r.qearly), qn = withF.filter(r => !r.qearly);
-  const hi = F.filter(r => r.opp > r.rating), lo = F.filter(r => r.opp <= r.rating);
+  const hi = F.filter(r => r.opp_pre > r.pre), lo = F.filter(r => r.opp_pre <= r.pre);
   const white = F.filter(r => r.color === "white"), black = F.filter(r => r.color === "black");
   const habits = [
     { name: "Castling", freq: `${pct(castled.length, withF.length)}% of games`, a: castled, b: notCastled, al: "castled", bl: "didn't", verdict: "when castled" },
@@ -686,7 +686,7 @@ ${Math.round(s.left * 100)}% of your starting time · games lost on time include
   const lossStack = (label, g) => { const ls = g.filter(r => r.outcome === "loss"), c = {}; ls.forEach(r => c[r.result] = (c[r.result] || 0) + 1); if (!ls.length) return "";
     return `<div style="margin:6px 0"><div class="small dim mono" style="text-transform:uppercase;letter-spacing:.1em">${label} · ${ls.length} losses</div><div class="stack" style="margin-top:4px">${Object.entries(c).sort((x, y) => Object.keys(reasonColor).indexOf(x[0]) - Object.keys(reasonColor).indexOf(y[0])).map(([k, v]) => `<div${tip(`${label} · ${k}: ${v} of ${ls.length} losses (${pct(v, ls.length)}%)`)} style="width:${pct(v, ls.length)}%;background:${reasonColor[k] || "#555"}"></div>`).join("")}</div></div>`; };
   const byColor = ["white", "black"].map(c => [`as ${c}`, F.filter(r => r.color === c)]);
-  const byOpp = [["vs higher-rated", F.filter(r => r.opp > r.rating)], ["vs equal / lower", F.filter(r => r.opp <= r.rating)]];
+  const byOpp = [["vs higher-rated", F.filter(r => r.opp_pre > r.pre)], ["vs equal / lower", F.filter(r => r.opp_pre <= r.pre)]];
   const resultsHalf = !single
     ? `<h2>Results by mode</h2>${TCS.map(tc => resultStack(tc, byTc(tc))).join("")}`
     : `<h2>Results · ${MODE} in depth</h2><div class="small dim" style="margin:0 0 6px">By time control</div>${ctlGroups.map(([l, g]) => resultStack(l, g)).join("")}<div class="small dim" style="margin:10px 0 6px">By color</div>${byColor.map(([l, g]) => resultStack(l, g)).join("")}`;

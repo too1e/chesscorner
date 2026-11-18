@@ -150,6 +150,15 @@ def rows(games):
         except Exception:
             pass
     out.sort(key=lambda r: r["t"])
+    # chess.com reports ratings after the game, so the winner always looks higher-rated. Rebuild the ratings
+    # going in: mine is where my last game in this time class left me, and the opponent's moved by roughly
+    # the opposite of what I gained or lost. The first game in a time class has nothing before it.
+    last = {}
+    for r in out:
+        prev = last.get(r["tc"])
+        r["pre"] = prev if prev is not None else r["rating"]
+        r["opp_pre"] = r["opp"] + (r["rating"] - r["pre"])
+        last[r["tc"]] = r["rating"]
     return out
 
 
