@@ -95,22 +95,6 @@
   .lcol .lbar { width: 100%; background: #8a8a8a; transition: background .12s; } .lcol:hover .lbar { background: #fff; }
   .lavg { position: absolute; left: 0; right: 0; border-top: 1px dashed #ff6b6b; pointer-events: none; } .lavg span { position: absolute; left: 0; top: -15px; font: 10px var(--mono); color: #ff8a8a; }
   .llabs { display: flex; gap: 10px; margin-top: 5px; } .llab { flex: 1; text-align: center; font: 11px var(--mono); color: var(--muted); } .llab span { display: block; color: var(--dim); font-size: 10px; }
-  /* narrow screens (phones, small windows) */
-  @media (max-width: 900px) {
-    :root { --S: min(calc(100vw - 96px), 560px); --S2: min(calc(100vw - 64px), 520px); --S3: min(calc(100vw - 64px), 520px); --GV: min(calc(100vw - 108px), 480px); --RV: min(calc(100vw - 100px), 520px); }
-    .hero, .opwrap, .exwrap, .rvwrap, .pzwrap { grid-template-columns: minmax(0, 1fr); }
-    .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .grid.two, .grid.three { grid-template-columns: minmax(0, 1fr); }
-    .mamain, .rvmain, .oprow, .gvbody, .pzcard { flex-wrap: wrap; } .machart, .maside { flex: 1 1 100%; }
-    main { padding: 10px 12px 40px; } header { padding: 0 12px; gap: 10px; }
-    .scrollcard, #exInfo { max-height: none; }
-    .oprow svg, .exwrap svg, .rvmain #rvBoard, .gvrow svg, .pzrow svg { min-width: 0; }
-  }
-  @media (max-width: 560px) {
-    .tiles { grid-template-columns: minmax(0, 1fr); } .wgrid, .habgrid { grid-template-columns: minmax(0, 1fr); }
-    .status { display: none; } .bar { gap: 8px; } .seg button { padding: 5px 8px; }
-    #exportBtn, #refreshBtn { padding: 5px 8px; font-size: 10px; }
-  }
   /* review viewer */
   :root { --RV: min(calc(100vh - 226px), 500px); }
   .rvwrap { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 12px; align-items: start; }
@@ -295,6 +279,30 @@
   .tipl li { margin: 5px 0; }
   input#exText { flex: 1; background: var(--panel2); color: var(--fg); border: 1px solid var(--line2); border-radius: 3px; padding: 7px 9px; font: 12.5px var(--mono); }
   @media (max-width: 720px) { .two, .three { grid-template-columns: 1fr; } header { gap: 12px; padding: 0 14px; } main { padding: 16px 14px 60px; } .brand span { display: none; } }
+  /* narrow screens (phones, small windows): kept last so they override the desktop sizes above */
+  @media (max-width: 900px) {
+    :root { --S: min(calc(100vw - 96px), 560px); --S2: min(calc(100vw - 64px), 520px); --S3: min(calc(100vw - 64px), 520px); --GV: min(calc(100vw - 108px), 480px); --RV: min(calc(100vw - 100px), 520px); }
+    .hero, .opwrap, .exwrap, .rvwrap, .pzwrap { grid-template-columns: minmax(0, 1fr); }
+    .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.two, .grid.three { grid-template-columns: minmax(0, 1fr); }
+    .mamain, .rvmain, .oprow, .gvbody, .pzcard { flex-wrap: wrap; } .machart, .maside { flex: 1 1 100%; }
+    main { padding: 10px 12px 40px; } header { padding: 0 12px; gap: 10px; }
+    .scrollcard, #exInfo { max-height: none; }
+    .oprow svg, .exwrap svg, .rvmain #rvBoard, .gvrow svg, .pzrow svg { min-width: 0; }
+  }
+  @media (max-width: 560px) {
+    .tiles { grid-template-columns: minmax(0, 1fr); } .wgrid, .habgrid { grid-template-columns: minmax(0, 1fr); }
+    .status { display: none; } .bar { gap: 8px; } .seg button { padding: 5px 8px; }
+    #exportBtn, #refreshBtn { padding: 5px 8px; font-size: 10px; }
+  }
+  @media (max-width: 560px) {
+    :root { --S: calc(100vw - 58px); --S2: calc(100vw - 50px); --RV: calc(100vw - 104px); --GV: calc(100vw - 92px); }
+    .seg { max-width: 100%; } .seg button { flex: 1 1 auto; padding: 6px 7px; letter-spacing: .06em; font-size: 10px; }
+    #rvList { max-height: 62vh; } #rvDetail, .oprow { scroll-margin-top: 56px; } .card { scroll-margin-top: 56px; }
+    .rvsum { flex-direction: column; align-items: stretch; gap: 10px; } .rvsum > div[style] { text-align: left !important; }
+    .gvnav.rvnav { grid-template-columns: repeat(4, minmax(0, 1fr)); } .gvnav.rvnav #rvPM, .gvnav.rvnav #rvNM { grid-column: span 2; }
+    .rvside #rvCap { height: auto; min-height: 3em; }
+  }
 </style>
 </head>
 <body>
@@ -362,6 +370,8 @@ function knockTap() {
     store.set("cc_times_unlocked", SHOW_TIMES ? "" : "knock"); location.reload();
   }, KNOCK_DONE);
 }
+// phones stack panels, so whatever a list item opens can be a long way down the page: bring it into view
+const phoneReveal = el => { if (el && matchMedia("(max-width: 900px)").matches) el.scrollIntoView({ behavior: "smooth", block: "start" }); };
 const siteReviews = () => store.get("cc_site_reviews", {});
 // missed-mate practice on the site: puzzles come baked in (first step pre-judged), progress lives in this browser
 const siteMateProgress = () => store.get("cc_site_mate_progress", {});
@@ -944,7 +954,7 @@ async function showReview(g, r) {
     Object.assign(RV, { g, r, d, positions: pos.positions, flip: r.color === "black", byPly: new Map(r.flagged.map(f => [f.ply, f])), selId: g.id });
     RV.mine = r.flagged.filter(f => f.mine && f.cls !== "inaccuracy").map(f => f.ply + 1).sort((a, b) => a - b);
     RV.cursor = RV.mine.length ? RV.mine[0] : 0;   // open with your first big mistake selected
-    rvBuild(); rvDraw(); document.querySelectorAll("#rvList tr.click").forEach(tr => tr.classList.toggle("sel", reviewGames[+tr.dataset.i] && reviewGames[+tr.dataset.i].id === g.id));
+    rvBuild(); rvDraw(); phoneReveal(box); document.querySelectorAll("#rvList tr.click").forEach(tr => tr.classList.toggle("sel", reviewGames[+tr.dataset.i] && reviewGames[+tr.dataset.i].id === g.id));
   } catch (e) { box.innerHTML = `<p class="loss">${esc(e.message)}</p>`; }
 }
 function rvBuild() {
@@ -1104,7 +1114,8 @@ async function openLine(id, mode) {
   $("#opControls").innerHTML = `<button class="btn" id="opLearn">Learn</button> <button class="btn primary" id="opDrill">Drill</button> <span id="opStep" class="hide"><button class="btn" id="opBack">◀ Back</button> <button class="btn" id="opNext">Next ▶</button></span>`;
   $("#opLearn").onclick = () => { $("#opStep").classList.remove("hide"); opStartLearn(); }; $("#opDrill").onclick = () => { $("#opStep").classList.add("hide"); opStartDrill(); };
   $("#opBack").onclick = () => opLearnStep(-1); $("#opNext").onclick = () => opLearnStep(1);
-  if (mode === "drill") $("#opDrill").click(); else $("#opLearn").click(); window.scrollTo({ top: 0, behavior: "smooth" });
+  if (mode === "drill") $("#opDrill").click(); else $("#opLearn").click();
+  if (matchMedia("(max-width: 900px)").matches) phoneReveal($("#opBoard").closest(".card")); else window.scrollTo({ top: 0, behavior: "smooth" });
 }
 async function loadOpeningLines() {
   OP.lines = await api("/api/opening/lines");
