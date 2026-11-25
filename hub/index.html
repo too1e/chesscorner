@@ -302,6 +302,10 @@
     .rvsum { flex-direction: column; align-items: stretch; gap: 10px; } .rvsum > div[style] { text-align: left !important; }
     .gvnav.rvnav { grid-template-columns: repeat(4, minmax(0, 1fr)); } .gvnav.rvnav #rvPM, .gvnav.rvnav #rvNM { grid-column: span 2; }
     .rvside #rvCap { height: auto; min-height: 3em; }
+    /* overview: the rating chart comes straight after the filters, ahead of the tiles */
+    #tab-overview { display: flex; flex-direction: column; } #tab-overview > * { min-width: 0; }
+    #tab-overview > .bar { order: -2; } #tab-overview > .hero { display: contents; }
+    #tab-overview > .hero > .card { order: -1; margin-bottom: 12px; } #tab-overview > .hero > .col { margin-bottom: 4px; }
   }
 </style>
 </head>
