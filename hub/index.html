@@ -279,6 +279,16 @@
   .tipl li { margin: 5px 0; }
   input#exText { flex: 1; background: var(--panel2); color: var(--fg); border: 1px solid var(--line2); border-radius: 3px; padding: 7px 9px; font: 12.5px var(--mono); }
   @media (max-width: 720px) { .two, .three { grid-template-columns: 1fr; } header { gap: 12px; padding: 0 14px; } main { padding: 16px 14px 60px; } .brand span { display: none; } }
+  /* session: should you keep playing? */
+  .ssgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+  .ssverdict { border-left: 3px solid var(--dim); } .ssverdict.stop { border-left-color: var(--bad); } .ssverdict.careful { border-left-color: var(--warn); } .ssverdict.go { border-left-color: var(--good); }
+  .ssword { font: 700 30px var(--mono, monospace); letter-spacing: .04em; margin: 2px 0 6px; } .stop .ssword { color: var(--bad); } .careful .ssword { color: var(--warn); } .go .ssword { color: var(--good); }
+  .ssnow { display: flex; flex-wrap: wrap; gap: 6px 22px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12px; } .ssnow b { display: block; font: 600 15px var(--mono, monospace); color: var(--fg); }
+  .ssdots { display: inline-flex; gap: 3px; vertical-align: middle; } .ssdots i { width: 9px; height: 9px; display: inline-block; background: #777; } .ssdots i.win { background: var(--good); } .ssdots i.loss { background: #7a3535; }
+  .hab.on { border-color: var(--fg); } .sschip { font: 600 9.5px var(--mono, monospace); letter-spacing: .08em; text-transform: uppercase; padding: 1px 5px; border: 1px solid var(--line2); color: var(--dim); margin-left: 6px; } .sschip.real { color: var(--fg); border-color: var(--muted); } .sschip.now { color: #000; background: var(--fg); border-color: var(--fg); }
+  .ssgrid .hab .hh { flex-direction: column; align-items: flex-start; gap: 1px; } .ssgrid .hab .hh > span:first-child { white-space: nowrap; }
+  .sstable td { padding: 5px 6px; } .sstable .num { text-align: right; }
+  @media (max-width: 900px) { .ssgrid { grid-template-columns: minmax(0, 1fr); } }
   /* narrow screens (phones, small windows): kept last so they override the desktop sizes above */
   @media (max-width: 900px) {
     :root { --S: min(calc(100vw - 96px), 560px); --S2: min(calc(100vw - 64px), 520px); --S3: min(calc(100vw - 64px), 520px); --GV: min(calc(100vw - 108px), 480px); --RV: min(calc(100vw - 100px), 520px); }
@@ -314,6 +324,7 @@
   <div class="brand"><svg width="22" height="22" viewBox="0 0 22 22"><rect x=".5" y=".5" width="21" height="21" fill="none" stroke="#fff"/><rect x="1" y="1" width="10" height="10" fill="#fff"/><rect x="11" y="11" width="10" height="10" fill="#fff"/></svg><span>CHESS CORNER</span></div>
   <nav id="tabs">
     <button data-tab="overview" class="on">Overview</button>
+    <button data-tab="session">Session</button>
     <button data-tab="review">Review</button>
     <button data-tab="openings">Openings</button>
     <button data-tab="explorer">Explorer</button>
@@ -328,6 +339,7 @@
 <main>
   <div id="offline" class="banner warn hide"></div>
   <section id="tab-overview"></section>
+  <section id="tab-session" class="hide"></section>
   <section id="tab-review" class="hide"></section>
   <section id="tab-openings" class="hide"></section>
   <section id="tab-explorer" class="hide"></section>
@@ -1508,6 +1520,87 @@ function mtShow(best) {
   MT.state = "revealed"; MT.sel = null; mtRecord(false);
   MT.msg = `The mate was <b>${esc((best && best.length ? best : MT.cur.san).join(" or "))}</b> — a forced mate in ${MT.cur.n}. This one will come back soon.`; mtDraw();
 }
+/* ---------- session: should you keep playing? ----------
+Replays each mode's games in order and notes the situation going into every game: how far into a session (games
+less than 30 minutes apart), how much rating that session has gained or lost, recent form and losing streaks.
+A signal only counts as "proven" when your win rate in that situation differs from the rest of your games by more
+than chance would explain (p < 0.05). The verdict only trusts proven signals. */
+const SS_GAP = 30 * 60, SS = { mode: null };
+const SS_SIGNALS = [
+  { k: "slide", stop: true, name: "Session slide", when: "down 25+ rating this session", on: s => s.delta <= -25 },
+  { k: "cold", stop: true, name: "Cold form", when: "0 or 1 wins in your last 5", on: s => s.last5.length === 5 && s.last5.filter(o => o === "win").length <= 1 },
+  { k: "long", stop: true, name: "Long session", when: "game 7 or later this session", on: s => s.idx >= 6 },
+  { k: "streak", stop: true, name: "Losing streak", when: "3+ losses in a row", on: s => s.lstreak >= 3 },
+  { k: "hot", stop: false, name: "Hot form", when: "4 or 5 wins in your last 5", on: s => s.last5.length === 5 && s.last5.filter(o => o === "win").length >= 4 },
+  { k: "up", stop: false, name: "Session climb", when: "up 25+ rating this session", on: s => s.delta >= 25 },
+];
+// the situation going into each game, plus the one you'd be in if you played another game now
+function ssStates(rows, now) {
+  const out = []; let st = null, prev = null;
+  const next = (prev, t) => prev && t - prev.r.t <= SS_GAP
+    ? { idx: prev.idx + 1, start: prev.start, delta: prev.r.rating - prev.start, sess: prev.sess,
+        lstreak: prev.r.outcome === "loss" ? prev.lstreak + 1 : 0, last5: prev.last5.concat(prev.r.outcome).slice(-5) }
+    : { idx: 0, start: null, delta: 0, sess: prev ? prev.sess + 1 : 0, lstreak: 0, last5: prev ? prev.last5.concat(prev.r.outcome).slice(-5) : [] };
+  rows.forEach(r => { st = next(prev, r.t); if (st.start == null) st.start = r.pre; st.r = r; out.push(st); prev = st; });
+  const cur = next(prev, now); cur.running = !!prev && now - prev.r.t <= SS_GAP; cur.last = prev;
+  return { states: out, now: cur };
+}
+function ssTest(a, b) {   // two-proportion z test on win rates; returns the p-value
+  const n1 = a.length, n2 = b.length; if (!n1 || !n2) return 1;
+  const w1 = a.filter(Boolean).length, w2 = b.filter(Boolean).length, p = (w1 + w2) / (n1 + n2), se = Math.sqrt(p * (1 - p) * (1 / n1 + 1 / n2));
+  if (!se) return 1; const z = Math.abs(w1 / n1 - w2 / n2) / se;
+  const t = 1 / (1 + .3275911 * z / Math.SQRT2), erf = 1 - t * (.254829592 + t * (-.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429)))) * Math.exp(-z * z / 2);
+  return 1 - erf;
+}
+function renderSession() {
+  const root = $("#tab-session"), now = IS_SNAPSHOT ? Math.max(GENERATED, Date.now() / 1000) : Date.now() / 1000;
+  const modes = TCS.filter(tc => ROWS.some(r => r.tc === tc));
+  if (!modes.length) { root.innerHTML = `<div class="card"><p class="muted">No games yet.</p></div>`; return; }
+  if (!SS.mode || !modes.includes(SS.mode)) SS.mode = ROWS[ROWS.length - 1].tc;
+  const rows = ROWS.filter(r => r.tc === SS.mode), { states, now: cur } = ssStates(rows, now);
+  const won = s => s.r.outcome === "win";
+  const sig = SS_SIGNALS.map(g => {
+    const on = states.filter(g.on), off = states.filter(s => !g.on(s)), a = on.length ? 100 * on.filter(won).length / on.length : null, b = off.length ? 100 * off.filter(won).length / off.length : null;
+    const p = ssTest(on.map(won), off.map(won)), real = on.length >= 15 && p < 0.05 && (g.stop ? a < b : a > b);
+    return { ...g, a, b, n: on.length, m: off.length, p, real, active: g.on(cur) };
+  });
+  const stopNow = sig.filter(g => g.stop && g.active && g.real), warnNow = sig.filter(g => g.stop && g.active && !g.real && g.a != null && g.a < g.b), goNow = sig.filter(g => !g.stop && g.active && g.real);
+  const why = list => list.map((g, i) => `<b>${i ? g.name.toLowerCase() : g.name}</b> (${g.when})`).join(" and ");
+  const verdict = stopNow.length ? ["stop", "Stop", `${why(stopNow)}. You've won ${Math.round(stopNow[0].a)}% of ${SS.mode} games in that spot, against ${Math.round(stopNow[0].b)}% otherwise.`]
+    : warnNow.length ? ["careful", "Careful", `${why(warnNow)}. Your ${SS.mode} games haven't shown this hurts you for sure, but you've done a bit worse here.`]
+    : goNow.length ? ["go", "Keep playing", `${why(goNow)}: you've won ${Math.round(goNow[0].a)}% of ${SS.mode} games in that spot.`]
+    : ["go", "Keep playing", cur.running ? "No warning signs in this session." : "No session running, so you're starting fresh."];
+  const last = cur.last, ago = last ? Math.round((now - last.r.t) / 60) : null, agoText = ago == null ? "–" : ago < 60 ? `${ago} min ago` : ago < 60 * 36 ? `${Math.round(ago / 60)} h ago` : `${Math.round(ago / 1440)} days ago`;
+  const dots = cur.last5.map(o => `<i class="${o}"${tip(o)}></i>`).join("");
+  const sessDelta = cur.running ? last.r.rating - cur.start : null;
+
+  // backtest: stop at the first proven stop signal in each session and see what the rest of it cost
+  const stopSigs = sig.filter(g => g.stop && g.real), sessions = [];
+  states.forEach(s => { (sessions[s.sess] = sessions[s.sess] || []).push(s); });
+  const done = sessions.filter(Boolean).map(ss => { const k = ss.findIndex(s => stopSigs.some(g => g.on(s)));
+    const ch = x => x.r.rating - x.r.pre;
+    return { t: ss[0].r.t, n: ss.length, net: ss.reduce((a, x) => a + ch(x), 0), k, after: k < 0 ? 0 : ss.slice(k).reduce((a, x) => a + ch(x), 0), afterN: k < 0 ? 0 : ss.length - k }; });
+  const hit = done.filter(d => d.k >= 0), saved = -hit.reduce((a, d) => a + d.after, 0);
+  const backtest = !stopSigs.length ? `<p class="muted small">No stop signal is proven for ${SS.mode} yet, so there's nothing to test. Your ${SS.mode} results look about the same however a session is going.</p>`
+    : `<p style="margin:0 0 10px">The signal fired in <b>${hit.length}</b> of your ${plural(done.length, "session")}. The games you played after it ${saved >= 0 ? `cost you <b class="loss">${Math.round(saved)} rating</b>` : `still gained you <b class="win">${Math.round(-saved)} rating</b>`}${hit.length ? `, about ${signed(-saved / hit.length)} a session` : ""}.</p>
+      <table class="sstable"><tr><th>Session</th><th class="num">Games</th><th class="num">Net</th><th class="num">After signal</th></tr>${done.slice(-10).reverse().map(d => `<tr><td class="mono small">${fmtShort(d.t)}</td><td class="num">${d.n}</td><td class="num ${d.net > 0 ? "win" : d.net < 0 ? "loss" : ""}">${signed(d.net)}</td><td class="num ${d.k < 0 ? "dim" : d.after > 0 ? "win" : d.after < 0 ? "loss" : ""}">${d.k < 0 ? "never fired" : `${signed(d.after)} <span class="dim small">in ${d.afterN}</span>`}</td></tr>`).join("")}</table>`;
+
+  const bar = (label, v, n, alt) => `<div class="hb"><span class="hl">${label} <span class="dim">${n}</span></span><div class="hbar"><i class="${alt ? "alt" : ""}" style="width:${v || 0}%"></i></div><b>${v == null ? "–" : Math.round(v) + "%"}</b></div>`;
+  const sigCard = g => `<div class="hab ${g.active ? "on" : ""}"><div class="hh"><span>${g.name}${g.real ? `<span class="sschip real"${tip(`Unlikely to be chance (p = ${g.p.toFixed(3)})`)}>proven</span>` : `<span class="sschip"${tip(g.n < 15 ? "Fewer than 15 games in this spot" : `Could be chance (p = ${g.p.toFixed(2)})`)}>${g.n < 15 ? "too few games" : "could be chance"}</span>`}${g.active ? `<span class="sschip now">now</span>` : ""}</span><span class="dim">${g.when}</span></div>
+      ${bar("in this spot", g.a, g.n, false)}${bar("otherwise", g.b, g.m, true)}</div>`;
+
+  root.innerHTML = `<div class="bar"><div class="seg" id="ssMode">${modes.map(tc => `<button data-k="${tc}" class="${tc === SS.mode ? "on" : ""}">${tc}</button>`).join("")}</div>
+      <span class="small dim mono">${rows.length} ${SS.mode} games · ${plural(done.length, "session")}</span></div>
+    <div class="card ssverdict ${verdict[0]}"><h2>Should you keep playing ${SS.mode}?</h2><div class="ssword">${verdict[1]}</div><div>${verdict[2]}</div>
+      <div class="ssnow"><span class="dim">This session<b>${cur.running ? `${cur.idx} game${cur.idx === 1 ? "" : "s"} · ${signed(sessDelta)}` : "not running"}</b></span>
+        <span class="dim">Last 5<b><span class="ssdots">${dots || "–"}</span></b></span><span class="dim">Rating<b>${last ? last.r.rating : "–"}</b></span><span class="dim">Last game<b>${agoText}</b></span></div></div>
+    <h2 class="sect">What your ${SS.mode} games say</h2>
+    <div class="ssgrid"><div class="card"><h2>Stop signals</h2><div class="habgrid">${sig.filter(g => g.stop).map(sigCard).join("")}</div></div>
+      <div class="col"><div class="card"><h2>Keep-going signals</h2><div class="habgrid">${sig.filter(g => !g.stop).map(sigCard).join("")}</div></div>
+        <div class="card"><h2>If you'd stopped at the signal</h2>${backtest}</div></div></div>
+    <p class="small dim" style="margin-top:12px">A session is games less than 30 minutes apart. Each signal compares your win rate going into games in that spot with all your other ${SS.mode} games, and only ones that are unlikely to be chance ("proven") can tell you to stop. ${IS_SNAPSHOT ? "This copy is a snapshot, so it only knows games up to when it was saved." : ""}</p>`;
+  root.querySelectorAll("#ssMode button").forEach(b => b.onclick = () => { SS.mode = b.dataset.k; renderSession(); });
+}
 async function renderMates() {
   const root = $("#tab-mates");
   if (!root.dataset.built) {
@@ -1783,7 +1876,7 @@ async function loadAll() {
 document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => {
   document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x === b));
   document.querySelectorAll("main > section").forEach(s => s.classList.toggle("hide", s.id !== "tab-" + b.dataset.tab));
-  if (b.dataset.tab === "review") renderReviewList(); if (b.dataset.tab === "openings") renderOpenings(); if (b.dataset.tab === "explorer" && !IS_SNAPSHOT) renderExplorerTab(); if (b.dataset.tab === "mates") renderMates();
+  if (b.dataset.tab === "review") renderReviewList(); if (b.dataset.tab === "openings") renderOpenings(); if (b.dataset.tab === "explorer" && !IS_SNAPSHOT) renderExplorerTab(); if (b.dataset.tab === "mates") renderMates(); if (b.dataset.tab === "session") renderSession();
 });
 $("#refreshBtn").onclick = async () => {
   const b = $("#refreshBtn"), t = $("#statusTxt"); b.disabled = true; t.textContent = "SYNCING…";
